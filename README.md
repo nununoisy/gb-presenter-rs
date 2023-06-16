@@ -21,7 +21,7 @@ and feeds it to FFmpeg to be encoded as a video.
 ## Features
 
 - Supports GBS files and LSDj ROM+SAV.
-    - Support for additional formats (VGM, GBTPlayer) is planned.
+    - Support for additional formats (LSDSNG, VGM, GBTPlayer) is planned.
 - Built on SameBoy for extremely accurate sound emulation.
     - It usually sounds just as good as a recording of a DMG with a ProSound mod.
 - Outputs a video file:
