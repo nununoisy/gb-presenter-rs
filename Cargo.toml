@@ -1,0 +1,29 @@
+[package]
+name = "gb-presenter-rs"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+
+[dependencies]
+sameboy = { path = "sameboy" }
+# Default features are disabled to avoid building `font-kit` which does not properly
+# compile alongside Slint in some cases (https://github.com/servo/font-kit/issues/212)
+raqote = { version = "0.8", default-features = false }
+image = "0.24"
+ringbuf = "0.3.3"
+ffmpeg-next = "6.0"
+ffmpeg-sys-next = "6.0"
+slint = "1.0.2"
+native-dialog = "0.6.3"
+indicatif = "0.17.5"
+clap = "4.3.1"
+
+[build-dependencies]
+slint-build = "1.0.2"

@@ -1,0 +1,241 @@
+import { Button, ComboBox, CheckBox, SpinBox, LineEdit, VerticalBox } from "std-widgets.slint";
+
+export component MainWindow inherits Window {
+    callback browse_for_rom();
+    callback browse_for_sav();
+    callback update_formatted_duration();
+    callback start_render();
+
+    in property <string> rom_path: "";
+    in property <string> sav_path: "";
+    in property <bool> input_valid: false;
+    in property <bool> lsdj_mode: false;
+    in-out property <int> selected_track_index: -1;
+    in-out property <string> selected_track_text: "Select a track...";
+    in-out property <string> track_duration_num: "300";
+    in-out property <string> track_duration_type: "seconds";
+    in property <string> track_duration_formatted: "<unknown>";
+    in-out property <int> fadeout_duration: 180;
+    in-out property <int> output_width: 1920;
+    in-out property <int> output_height: 1080;
+    in property <[string]> track_titles: [];
+
+    in property <bool> rendering: false;
+    in property <float> progress: 0.0;
+    in property <string> progress_bar_text: "Idle";
+    in property <[string]> progress_lines: [];
+
+    title: "GBPresenter";
+    icon: @image-url("gb-presenter-icon.png");
+
+    VerticalBox {
+        alignment: start;
+        spacing: 12px;
+        Text {
+            text: "GBPresenter";
+            font-size: 32px;
+            horizontal-alignment: center;
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Input ROM/GBS:";
+                vertical-alignment: center;
+            }
+            LineEdit {
+                enabled: false;
+                text: rom_path;
+                placeholder-text: "No ROM/GBS selected";
+            }
+            Button {
+                text: "Browse...";
+                enabled: !rendering;
+                clicked => {
+                    root.browse_for_rom();
+                }
+            }
+        }
+        if lsdj_mode : HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "LSDj SAV:";
+                vertical-alignment: center;
+            }
+            LineEdit {
+                enabled: false;
+                text: sav_path;
+                placeholder-text: "No save selected";
+            }
+            Button {
+                text: "Browse...";
+                enabled: !rendering;
+                clicked => {
+                    root.browse_for_sav();
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Track:";
+                vertical-alignment: center;
+            }
+            ComboBox {
+                model: track_titles;
+                current-index <=> selected_track_index;
+                current-value <=> selected_track_text;
+                enabled: !rendering;
+                selected => {
+                    root.update_formatted_duration();
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Render duration:";
+                vertical-alignment: center;
+            }
+            LineEdit {
+                text <=> track_duration_num;
+                enabled: !rendering;
+                edited => {
+                    root.update_formatted_duration();
+                }
+            }
+            ComboBox {
+                model: lsdj_mode
+                    ? ["seconds", "frames", "loops"]
+                    : ["seconds", "frames"];
+                current-value <=> track_duration_type;
+                enabled: !rendering;
+                selected => {
+                    root.update_formatted_duration();
+                }
+            }
+            Text {
+                text: track_duration_formatted;
+                vertical-alignment: center;
+                color: track_duration_formatted == "<error>"
+                    ? red
+                    : white;
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Fadeout frames:";
+                vertical-alignment: center;
+            }
+            SpinBox {
+                value <=> fadeout_duration;
+                minimum: 0;
+                maximum: 1200;
+                enabled: !rendering;
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Output video size:";
+                vertical-alignment: center;
+            }
+            SpinBox {
+                value <=> output_width;
+                minimum: 960;
+                maximum: 7680;
+                enabled: !rendering;
+            }
+            Text {
+                text: "×";
+                vertical-alignment: center;
+            }
+            SpinBox {
+                value <=> output_height;
+                minimum: 540;
+                maximum: 4320;
+                enabled: !rendering;
+            }
+            Button {
+                text: "1080p";
+                enabled: !rendering;
+                clicked => {
+                    output_width = 1920;
+                    output_height = 1080;
+                }
+            }
+            Button {
+                text: "4K";
+                enabled: !rendering;
+                clicked => {
+                    output_width = 3840;
+                    output_height = 2160;
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: center;
+            Button {
+                text: rendering
+                    ? "Rendering..."
+                    : "Render!";
+                enabled: !rendering;
+                clicked => {
+                    root.start_render();
+                }
+            }
+        }
+        VerticalLayout {
+            alignment: center;
+            spacing: 8px;
+            min-height: 96px;
+
+            Rectangle {
+                preferred-height: 32px;
+
+                Rectangle {
+                    border-width: 1px;
+                    border-radius: 2px;
+                    border-color: #313131;  // Palette.neutralLighter
+                    background: #313131;  // Palette.neutralLighter
+                }
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    height: parent.height;
+                    width: progress * parent.width;
+
+                    border-width: 1px;
+                    border-radius: 2px;
+                    border-color: #0078d4;  // Palette.themePrimary
+                    background: #0078d4;  // Palette.themePrimary
+
+                    animate width {
+                        duration: 100ms;
+                        easing: ease-in-out;
+                    }
+                }
+                Text {
+                    x: 0;
+                    y: 0;
+                    height: parent.height;
+                    width: parent.width;
+
+                    text: progress_bar_text;
+                    vertical-alignment: center;
+                    horizontal-alignment: center;
+                }
+            }
+            for line in progress_lines : Text {
+                text: line;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
