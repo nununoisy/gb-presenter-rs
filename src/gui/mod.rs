@@ -10,6 +10,7 @@ use native_dialog::{FileDialog, MessageDialog, MessageType};
 use slint;
 use crate::gui::render_thread::RenderThreadMessage;
 use crate::main;
+use crate::renderer::gbs::Gbs;
 use crate::renderer::lsdj;
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
 
@@ -188,6 +189,18 @@ pub fn run() {
                         main_window_weak.unwrap().set_lsdj_mode(false);
                         main_window_weak.unwrap().set_input_valid(true);
                         options.borrow_mut().input = RenderInput::GBS(path.clone());
+
+                        // TODO don't crash on an invalid GBS
+                        let gbs = Gbs::open(path.clone()).unwrap();
+                        println!(
+                            "{} - {} - {} ({} tracks, start at {})",
+                            gbs.title().unwrap(), gbs.artist().unwrap(), gbs.copyright().unwrap(),
+                            gbs.song_count(), gbs.starting_song()
+                        );
+                        let track_titles: Vec<String> = (0..gbs.song_count())
+                            .map(|i| format!("Track {}", i + 1))
+                            .collect();
+                        main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
                     } else {
                         main_window_weak.unwrap().set_lsdj_mode(false);
                         main_window_weak.unwrap().set_input_valid(false);

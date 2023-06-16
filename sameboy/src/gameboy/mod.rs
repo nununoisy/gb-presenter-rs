@@ -58,6 +58,7 @@ impl Gameboy {
 }
 
 impl Gameboy {
+    // TODO: this is a self-referential struct without a Pin. Fix that.
     pub fn new(model: Model) -> Box<Self> {
         unsafe {
             let mut result = Box::new(Self {

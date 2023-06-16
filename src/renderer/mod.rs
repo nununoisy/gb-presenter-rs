@@ -1,5 +1,6 @@
 pub mod render_options;
 pub mod lsdj;
+pub mod gbs;
 
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
