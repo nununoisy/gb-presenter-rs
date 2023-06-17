@@ -82,7 +82,7 @@ impl ApuStateReceiver for Visualizer {
         // Average the wave volume with the amplitude so the
         // wave pattern shows up in the piano roll slices
         let volume = match channel {
-            ApuChannel::Wave => (amplitude / 2) + (volume / 2),
+            ApuChannel::Wave => (amplitude / 3) + (2 * volume / 3),
             _ => volume
         };
 

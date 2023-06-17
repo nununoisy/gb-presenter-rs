@@ -130,7 +130,7 @@ impl Visualizer {
             &path,
             &glow_source,
             &StrokeStyle {
-                width: 4.0,
+                width: 3.0,
                 cap: LineCap::Round,
                 join: LineJoin::Round,
                 miter_limit: 2.0,
