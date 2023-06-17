@@ -108,7 +108,7 @@ impl Renderer {
                     self.gb.run_frame();
                 }
 
-                lsdj::lsdj_select_track(&mut self.gb, self.options.track_index);
+                lsdj::select_track_joypad_macro(&mut self.gb, self.options.track_index);
             }
         }
 
@@ -239,7 +239,7 @@ impl Renderer {
 
     pub fn song_position(&mut self) -> Option<SongPosition> {
         match &self.options.input {
-            RenderInput::LSDj(_, _) => lsdj::lsdj_get_song_position(&mut self.gb),
+            RenderInput::LSDj(_, _) => lsdj::get_song_position(&mut self.gb),
             _ => None
         }
     }

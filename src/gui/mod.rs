@@ -40,6 +40,7 @@ fn slint_int_arr<I, N>(a: I) -> slint::ModelRc<i32>
 
 fn browse_for_rom_dialog() -> Option<String> {
     let file = FileDialog::new()
+        .add_filter("All supported formats", &["gb", "gbs"])
         .add_filter("LSDj ROMs", &["gb"])
         .add_filter("GameBoy Sound Files", &["gbs"])
         .show_open_single_file();
@@ -63,6 +64,7 @@ fn browse_for_sav_dialog() -> Option<String> {
 
 fn browse_for_video_dialog() -> Option<String> {
     let file = FileDialog::new()
+        .add_filter("All supported formats", &["mp4", "mkv"])
         .add_filter("MPEG-4 Video", &["mp4"])
         .add_filter("Matroska Video", &["mkv"])
         .show_save_single_file();
@@ -172,6 +174,8 @@ pub fn run() {
             match browse_for_rom_dialog() {
                 Some(path) => {
                     main_window_weak.unwrap().set_rom_path(path.clone().into());
+                    main_window_weak.unwrap().set_lsdj_mode(false);
+                    main_window_weak.unwrap().set_input_valid(false);
 
                     main_window_weak.unwrap().set_selected_track_index(-1);
                     main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
@@ -180,18 +184,18 @@ pub fn run() {
                     main_window_weak.unwrap().set_track_duration_type("seconds".into());
                     main_window_weak.unwrap().invoke_update_formatted_duration();
 
-                    if path.ends_with(".gb") {
-                        // TODO validate LSDj version
+                    if let Ok(Some(lsdj_version)) = lsdj::get_lsdj_version(&path) {
+                        let major = i32::from_str(lsdj_version.split(".").next().unwrap()).unwrap();
+                        if major < 5 {
+                            display_error_dialog("Unsupported LSDj version! Please select a ROM that is v5.x or newer.");
+                            return;
+                        }
                         main_window_weak.unwrap().set_lsdj_mode(true);
-                        main_window_weak.unwrap().set_input_valid(false);
                         options.borrow_mut().input = RenderInput::LSDj(path.clone(), "".to_string());
-                    } else if path.ends_with(".gbs") {
-                        main_window_weak.unwrap().set_lsdj_mode(false);
-                        main_window_weak.unwrap().set_input_valid(true);
-                        options.borrow_mut().input = RenderInput::GBS(path.clone());
+                        return;
+                    }
 
-                        // TODO don't crash on an invalid GBS
-                        let gbs = Gbs::open(path.clone()).unwrap();
+                    if let Ok(gbs) = Gbs::open(path.clone()) {
                         println!(
                             "{} - {} - {} ({} tracks, start at {})",
                             gbs.title().unwrap(), gbs.artist().unwrap(), gbs.copyright().unwrap(),
@@ -201,11 +205,15 @@ pub fn run() {
                             .map(|i| format!("Track {}", i + 1))
                             .collect();
                         main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
-                    } else {
-                        main_window_weak.unwrap().set_lsdj_mode(false);
-                        main_window_weak.unwrap().set_input_valid(false);
-                        options.borrow_mut().input = RenderInput::None;
+
+                        main_window_weak.unwrap().set_input_valid(true);
+                        options.borrow_mut().input = RenderInput::GBS(path.clone());
+                        return;
                     }
+
+                    display_error_dialog("Unrecognized input file.");
+                    main_window_weak.unwrap().set_rom_path("".into());
+                    options.borrow_mut().input = RenderInput::None;
                 },
                 None => ()
             }
@@ -227,14 +235,14 @@ pub fn run() {
                     main_window_weak.unwrap().set_track_duration_type("seconds".into());
                     main_window_weak.unwrap().invoke_update_formatted_duration();
 
-                    // TODO validate save file
-                    main_window_weak.unwrap().set_lsdj_mode(true);
-                    main_window_weak.unwrap().set_input_valid(true);
+                    if let Ok(Some(track_titles)) = lsdj::get_track_titles_from_save(path.clone()) {
+                        main_window_weak.unwrap().set_lsdj_mode(true);
+                        main_window_weak.unwrap().set_input_valid(true);
 
-                    options.borrow_mut().input = RenderInput::LSDj(main_window_weak.unwrap().get_rom_path().to_string(), path.clone());
+                        options.borrow_mut().input = RenderInput::LSDj(main_window_weak.unwrap().get_rom_path().to_string(), path.clone());
 
-                    let track_titles = lsdj::lsdj_sav_get_track_titles(path).unwrap();
-                    main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
+                        main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
+                    }
                 },
                 None => ()
             }

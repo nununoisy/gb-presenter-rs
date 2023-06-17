@@ -5,7 +5,7 @@ use std::path::Path;
 use sameboy::{Gameboy, JoypadButton};
 use crate::renderer::SongPosition;
 
-pub fn lsdj_select_track(gb: &mut Gameboy, track_index: u8) {
+pub fn select_track_joypad_macro(gb: &mut Gameboy, track_index: u8) {
     // Open the project menu
     gb.joypad_macro_frame(&[JoypadButton::Select, JoypadButton::Up]);
     gb.joypad_macro_frame(&[JoypadButton::Select, JoypadButton::Up]);
@@ -68,7 +68,7 @@ pub fn lsdj_select_track(gb: &mut Gameboy, track_index: u8) {
 
 const LSDJ_ROW_BASE_ADDR: u16 = 0xC200;
 
-pub fn lsdj_get_song_position(gb: &mut Gameboy) -> Option<SongPosition> {
+pub fn get_song_position(gb: &mut Gameboy) -> Option<SongPosition> {
     // TODO: detect HFF condition
     let position = (0..4)
         .map(|i| gb.read_memory(LSDJ_ROW_BASE_ADDR + i))
@@ -81,10 +81,38 @@ pub fn lsdj_get_song_position(gb: &mut Gameboy) -> Option<SongPosition> {
     }
 }
 
-pub fn lsdj_sav_get_track_titles<P: AsRef<Path>>(sav_path: P) -> io::Result<Vec<String>> {
-    let mut sav = BufReader::new(File::open(sav_path)?);
-    sav.seek(SeekFrom::Start(0x8000))?;
+pub fn get_lsdj_version<P: AsRef<Path>>(rom_path: P) -> io::Result<Option<String>> {
+    let mut rom = BufReader::new(File::open(rom_path)?);
+    rom.seek(SeekFrom::Start(0x134))?;
 
+    let mut title_bytes = vec![0u8; 11];
+    rom.read_exact(&mut title_bytes)?;
+
+    if let Some(terminator) = title_bytes.iter().rposition(|&b| b != 0) {
+        title_bytes.truncate(terminator + 1);
+    }
+    let title = match String::from_utf8(title_bytes) {
+        Ok(title) => title,
+        Err(_) => return Ok(None)
+    };
+
+    if !title.starts_with("LSDj-v") {
+        return Ok(None)
+    }
+    Ok(Some(title.replace("LSDj-v", "")))
+}
+
+pub fn get_track_titles_from_save<P: AsRef<Path>>(sav_path: P) -> io::Result<Option<Vec<String>>> {
+    let mut sav = BufReader::new(File::open(sav_path)?);
+
+    sav.seek(SeekFrom::Start(0x813E))?;
+    let mut jk = [0u8; 2];
+    sav.read_exact(&mut jk)?;
+    if &jk != b"jk" {
+        return Ok(None);
+    }
+
+    sav.seek(SeekFrom::Start(0x8000))?;
     let mut titles = [0u8; 0x100];
     sav.read_exact(&mut titles)?;
 
@@ -96,5 +124,5 @@ pub fn lsdj_sav_get_track_titles<P: AsRef<Path>>(sav_path: P) -> io::Result<Vec<
         })
         .collect();
 
-    Ok(titles)
+    Ok(Some(titles))
 }
