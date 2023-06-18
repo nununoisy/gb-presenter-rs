@@ -76,11 +76,11 @@ allows for batch rendering and even automated uploads.
 
 The most basic invocation is this:
 ```
-nsf-presenter-rs --lsdj lsdj.gb songs.sav path/to/output.mp4
+gb-presenter-rs --lsdj lsdj.gb songs.sav path/to/output.mp4
 ```
 or
 ```
-nsf-presenter-rs --gbs songs.gbs path/to/output.mkv
+gb-presenter-rs --gbs songs.gbs path/to/output.mkv
 ```
 
 Additional options:

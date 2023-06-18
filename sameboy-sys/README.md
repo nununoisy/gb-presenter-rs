@@ -18,6 +18,12 @@ You will need `cppp` on your PATH in order to compile SameBoy.
 4. The `cppp` binary should be in your current directory. Install
    it somewhere convenient or add the `cppp` dir to your PATH.
 
+### MSVC setup
+
+SameBoy does not support MSVC, so this crate calls out to Clang
+to compile it. You can install Clang and its MSBuild integration
+from the Visual Studio Installer.
+
 ### Compiling `sameboy-sys`
 
 1. Ensure `cppp` is on your PATH.
