@@ -70,7 +70,7 @@ then clone the repo and run `cargo build --release` to build.
 
 ### CLI
 
-If NSFPresenter is started with command line arguments, it runs in CLI mode.
+If GBPresenter is started with command line arguments, it runs in CLI mode.
 This allows for the automation of rendering visualizations which in turn
 allows for batch rendering and even automated uploads.
 
