@@ -10,3 +10,4 @@ name = "sameboy"
 
 [dependencies]
 sameboy-sys = { path = "../sameboy-sys" }
+encoding_rs = "0.8.32"

@@ -2,6 +2,7 @@ mod joypad;
 mod model;
 mod audio;
 mod memory;
+mod gbs_info;
 
 use core::slice;
 use std::cell::RefCell;
@@ -15,6 +16,7 @@ pub use joypad::JoypadButton;
 pub use audio::{ApuChannel, ApuStateReceiver};
 pub use model::{Model, Revision, VideoStandard};
 pub use memory::MemoryInterceptor;
+pub use gbs_info::GbsInfo;
 
 const SCREEN_BUF_SIZE: usize = 160 * 144 * 2; // reserve a bit of extra space
 
@@ -111,11 +113,12 @@ impl Gameboy {
     }
 
     /// Load a GameBoy Sound module.
-    pub fn load_gbs(&mut self, gbs: &[u8]) {
+    pub fn load_gbs(&mut self, gbs: &[u8]) -> GbsInfo {
+        let mut info = GbsInfo::new();
         unsafe {
-            // todo info
-            GB_load_gbs_from_buffer(self.as_mut_ptr(), gbs.as_ptr(), gbs.len(), ptr::null_mut());
+            GB_load_gbs_from_buffer(self.as_mut_ptr(), gbs.as_ptr(), gbs.len(), info.as_mut_ptr());
         }
+        info
     }
 
     pub fn gbs_change_track(&mut self, track: u8) {
