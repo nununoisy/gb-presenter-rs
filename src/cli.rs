@@ -2,7 +2,23 @@ use clap::{arg, Arg, ArgAction, value_parser, Command};
 use std::path::PathBuf;
 use indicatif::{FormattedDuration, HumanBytes, ProgressBar, ProgressStyle};
 use std::fmt::Write;
+use sameboy::{Model, Revision};
 use crate::renderer::{Renderer, render_options::{RendererOptions, RenderInput, StopCondition}};
+
+fn model_value_parser(s: &str) -> Result<Model, String> {
+    match s.replace("-", "").to_lowercase().as_str() {
+        "dmg" | "dmgb" => Ok(Model::DMG(Revision::RevB)),
+        "cgb0" => Ok(Model::CGB(Revision::Rev0)),
+        "cgba" => Ok(Model::CGB(Revision::RevA)),
+        "cgbb" => Ok(Model::CGB(Revision::RevB)),
+        "cgbc" => Ok(Model::CGB(Revision::RevC)),
+        "cgbd" => Ok(Model::CGB(Revision::RevD)),
+        "cgb" | "cgbe" => Ok(Model::CGB(Revision::RevE)),
+        "mgb" => Ok(Model::MGB),
+        "agb" => Ok(Model::AGB),
+        _ => Err("Invalid model string".to_string())
+    }
+}
 
 fn get_renderer_options() -> RendererOptions {
     let matches = Command::new("GBPresenter")
@@ -42,6 +58,10 @@ fn get_renderer_options() -> RendererOptions {
             .required(false)
             .value_parser(value_parser!(u32))
             .default_value("1080"))
+        .arg(arg!(-m --"model" <MODEL> "GameBoy model to emulate")
+            .required(false)
+            .value_parser(model_value_parser)
+            .default_value("DMG-B"))
         .arg(arg!(-g --"gbs" <GBS> "GBS file to render")
             .required(false)
             .value_parser(value_parser!(PathBuf)))
@@ -87,6 +107,8 @@ fn get_renderer_options() -> RendererOptions {
     let ow = matches.get_one::<u32>("ow").cloned().unwrap();
     let oh = matches.get_one::<u32>("oh").cloned().unwrap();
     options.video_options.resolution_out = (ow, oh);
+
+    options.model = matches.get_one::<Model>("model").cloned().unwrap();
 
     // TODO: codec options
 

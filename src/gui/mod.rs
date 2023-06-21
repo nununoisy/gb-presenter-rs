@@ -8,6 +8,7 @@ use std::time::Duration;
 use indicatif::{FormattedDuration, HumanBytes};
 use native_dialog::{FileDialog, MessageDialog, MessageType};
 use slint;
+use sameboy::{Model, Revision};
 use crate::gui::render_thread::RenderThreadMessage;
 use crate::main;
 use crate::renderer::gbs::Gbs;
@@ -103,7 +104,9 @@ pub fn run() {
                 RenderThreadMessage::RenderStarting => {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
-                        main_window_weak.unwrap().set_rendering(true)
+                        main_window_weak.unwrap().set_rendering(true);
+                        main_window_weak.unwrap().set_progress(0.0);
+                        main_window_weak.unwrap().set_progress_bar_text("Setting up renderer...".into());
                     }).unwrap();
                 }
                 RenderThreadMessage::RenderProgress(p) => {
@@ -319,6 +322,19 @@ pub fn run() {
             options.borrow_mut().fadeout_length = main_window_weak.unwrap().get_fadeout_duration() as u64;
             options.borrow_mut().video_options.resolution_out.0 = main_window_weak.unwrap().get_output_width() as u32;
             options.borrow_mut().video_options.resolution_out.1 = main_window_weak.unwrap().get_output_height() as u32;
+
+            options.borrow_mut().model = match main_window_weak.unwrap().get_selected_model_text().to_string().as_str() {
+                "DMG-B" => Model::DMG(Revision::RevB),
+                "CGB-0" => Model::CGB(Revision::Rev0),
+                "CGB-A" => Model::CGB(Revision::RevA),
+                "CGB-B" => Model::CGB(Revision::RevB),
+                "CGB-C" => Model::CGB(Revision::RevC),
+                "CGB-D" => Model::CGB(Revision::RevD),
+                "CGB-E" => Model::CGB(Revision::RevE),
+                "MGB" => Model::MGB,
+                "AGB" => Model::AGB,
+                _ => unreachable!()
+            };
 
             rt_tx.send(Some(options.borrow().clone())).unwrap();
         });
