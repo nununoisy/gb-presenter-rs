@@ -116,6 +116,8 @@ fn main() {
         .flag("-Wno-unused-parameter")
         .flag("-Wno-constant-conversion")
         .flag("-Wno-missing-field-initializers")
+        .flag("-Wno-implicit-fallthrough")
+        .flag("-D__STDC_WANT_LIB_EXT2__=1")
         .flag("-DGB_INTERNAL")
         .flag("-DGB_DISABLE_TIMEKEEPING")
         .flag("-DGB_DISABLE_REWIND")
