@@ -31,7 +31,8 @@ pub struct Gameboy {
     memory_interceptor: Option<Box<dyn MemoryInterceptor>>,
     io_registers_copy: [u8; 0x80],
     apu_receiver: Option<Rc<RefCell<dyn ApuStateReceiver>>>,
-    screen_buf: [u32; SCREEN_BUF_SIZE]
+    screen_buf: [u32; SCREEN_BUF_SIZE],
+    boot_rom_unmapped: bool
 }
 
 impl Gameboy {
@@ -69,7 +70,8 @@ impl Gameboy {
                 audio_buf: VecDeque::new(),
                 memory_interceptor: None,
                 io_registers_copy: [0u8; 0x80],
-                apu_receiver: None
+                apu_receiver: None,
+                boot_rom_unmapped: false
             });
 
             result.ptr = GB_alloc();
@@ -77,6 +79,7 @@ impl Gameboy {
             GB_set_user_data(result.as_mut_ptr(), &mut *result as *mut Gameboy as *mut _);
             GB_set_pixels_output(result.as_mut_ptr(), result.screen_buf.as_mut_ptr());
             GB_set_rgb_encode_callback(result.as_mut_ptr(), Some(rgb_encode_callback));
+            result.joypad_release_all();
             result.init_audio();
             result.set_memory_interceptor(None);
 
@@ -86,6 +89,7 @@ impl Gameboy {
 
     /// Reset the emulation.
     pub fn reset(&mut self) {
+        self.boot_rom_unmapped = false;
         unsafe {
             GB_reset(self.as_mut_ptr());
         }
@@ -93,6 +97,7 @@ impl Gameboy {
 
     /// Load a boot ROM.
     pub fn load_boot_rom(&mut self, boot_rom: &[u8]) {
+        self.boot_rom_unmapped = false;
         unsafe {
             GB_load_boot_rom_from_buffer(self.as_mut_ptr(), boot_rom.as_ptr(), boot_rom.len());
         }
@@ -100,6 +105,7 @@ impl Gameboy {
 
     /// Load a cartridge ROM.
     pub fn load_rom(&mut self, rom: &[u8]) {
+        self.boot_rom_unmapped = false;
         unsafe {
             GB_load_rom_from_buffer(self.as_mut_ptr(), rom.as_ptr(), rom.len());
         }
@@ -114,6 +120,7 @@ impl Gameboy {
 
     /// Load a GameBoy Sound module.
     pub fn load_gbs(&mut self, gbs: &[u8]) -> GbsInfo {
+        self.boot_rom_unmapped = false;
         let mut info = GbsInfo::new();
         unsafe {
             GB_load_gbs_from_buffer(self.as_mut_ptr(), gbs.as_ptr(), gbs.len(), info.as_mut_ptr());
@@ -186,6 +193,7 @@ impl Gameboy {
         }
     }
 
+    /// Read the current screen buffer as an array of RGB values.
     pub fn screen_buffer_rgb(&mut self) -> Vec<u8> {
         let (w, h) = self.screen_size();
         let mut result = vec![0u8; 3 * w * h];
@@ -201,6 +209,38 @@ impl Gameboy {
         }
 
         result
+    }
+
+    /// Dump the current screen buffer to the terminal.
+    pub fn dump_screen_buffer(&mut self) {
+        let (w, h) = self.screen_size();
+
+        println!("------ screen dump ------");
+        unsafe {
+            let screen_ptr = GB_get_pixels_output(self.as_mut_ptr()) as *const u32;
+
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * w + x;
+                    let pix_raw = screen_ptr.add(i).read();
+                    let pix = ((pix_raw >> 24) & 0xFF) as u8 | ((pix_raw >> 16) & 0xFF) as u8 | ((pix_raw >> 8) & 0xFF) as u8;
+                    match pix {
+                        0..=51 => print!(" "),
+                        52..=102 => print!("░"),
+                        103..=153 => print!("▒"),
+                        154..=204 => print!("▓"),
+                        205..=255 => print!("█"),
+                        _ => unreachable!()
+                    }
+                }
+                println!();
+            }
+        }
+    }
+
+    /// Check to see if the boot ROM has finished executing.
+    pub fn boot_rom_finished(&self) -> bool {
+        self.boot_rom_unmapped
     }
 }
 

@@ -74,7 +74,7 @@ impl Renderer {
 
     pub fn start_encoding(&mut self) -> Result<(), String> {
         self.gb.set_sample_rate(self.options.video_options.sample_rate as usize);
-        self.gb.set_rendering_disabled(true);
+        self.gb.emulate_joypad_bouncing(false);
 
         match &self.options.input {
             RenderInput::None => return Err("No input specified.".to_string()),
@@ -99,15 +99,11 @@ impl Renderer {
 
                 println!("{}", self.gb.game_title());
 
-                let boot_delay = match self.gb.model() {
-                    Model::DMG(_) => 128,
-                    _ => 256
-                };
-
-                for _ in 0..boot_delay {
-                    self.gb.run_frame();
+                while !self.gb.boot_rom_finished() {
+                    self.gb.run();
                 }
 
+                self.gb.joypad_macro_press(&[], Some(Duration::from_millis(5000)));
                 lsdj::select_track_joypad_macro(&mut self.gb, self.options.track_index);
             }
         }
@@ -115,7 +111,7 @@ impl Renderer {
         self.gb.set_apu_receiver(Some(self.viz.clone()));
 
         match &self.options.input {
-            RenderInput::LSDj(_, _) => self.gb.joypad_macro_frame(&[JoypadButton::Start]),
+            RenderInput::LSDj(_, _) => self.gb.joypad_macro_press(&[JoypadButton::Start], None),
             _ => ()
         }
         // Clear the sample buffer to get rid of boot ROM ding and LSDj selection frame silence

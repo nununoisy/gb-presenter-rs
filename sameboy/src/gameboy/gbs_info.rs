@@ -1,10 +1,16 @@
 use sameboy_sys::GB_gbs_info_t;
+use std::slice;
 use encoding_rs::{CoderResult, SHIFT_JIS};
 
 macro_rules! string_fn {
-    ($name: tt, $offset: literal, $max_len: literal) => {
+    ($name: tt, $field: tt) => {
         pub fn $name(&self) -> Result<String, String> {
-            self.parse_string($offset, $max_len)
+            let data = unsafe {
+                let s = (*self.as_ptr()).$field.as_slice();
+                slice::from_raw_parts(s.as_ptr() as *const u8, s.len())
+            };
+
+            Self::parse_string(data)
         }
     }
 }
@@ -59,19 +65,19 @@ impl GbsInfo {
         }
     }
 
-    fn parse_string(&self, offset: usize, max_len: usize) -> Result<String, String> {
-        let length = (offset..offset+max_len)
-            .position(|i| self.data[i] == 0)
-            .unwrap_or(max_len);
+    fn parse_string(data: &[u8]) -> Result<String, String> {
+        let length = data.iter()
+            .position(|&b| b == 0)
+            .unwrap_or(data.len());
 
         let mut sj_decoder = SHIFT_JIS.new_decoder();
         let mut sj_result = String::new();
         sj_result.reserve(length * 4);  // Probably way more than ever needed but better safe than sorry
 
-        let (coder_result, _bytes_read, did_replacements) = sj_decoder.decode_to_string(s, &mut result, true);
+        let (coder_result, _bytes_read, did_replacements) = sj_decoder.decode_to_string(&data[0..length], &mut sj_result, true);
         if coder_result == CoderResult::OutputFull || did_replacements {
             // Not valid Shift-JIS, just try ASCII/Unicode
-            match std::str::from_utf8(&self.data[offset..offset+length]) {
+            match std::str::from_utf8(&data[0..length]) {
                 Ok(s) => Ok(s.to_string()),
                 Err(e) => Err(e.to_string())
             }
@@ -80,9 +86,9 @@ impl GbsInfo {
         }
     }
 
-    string_fn!(title, 0x10, 0x20);
-    string_fn!(artist, 0x30, 0x20);
-    string_fn!(copyright, 0x50, 0x20);
+    string_fn!(title, title);
+    string_fn!(artist, author);
+    string_fn!(copyright, copyright);
 }
 
 impl Drop for GbsInfo {

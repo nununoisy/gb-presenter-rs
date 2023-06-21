@@ -1,5 +1,5 @@
 use super::Gameboy;
-use sameboy_sys::{GB_direct_access_t_GB_DIRECT_ACCESS_IO, GB_gameboy_t, GB_safe_read_memory, GB_set_read_memory_callback, GB_set_write_memory_callback, GB_write_memory};
+use sameboy_sys::{GB_direct_access_t_GB_DIRECT_ACCESS_IO, GB_gameboy_t, GB_safe_read_memory, GB_set_execution_callback, GB_set_read_memory_callback, GB_set_write_memory_callback, GB_write_memory};
 
 pub trait MemoryInterceptor {
     /// Intercept a memory read. Return `data` to use default behavior.
@@ -10,6 +10,11 @@ pub trait MemoryInterceptor {
     /// Intercept a memory write. Return `false` to block the default write.
     fn intercept_write(&mut self, addr: u16, data: u8) -> bool {
         true
+    }
+
+    /// Intercept a memory execution.
+    fn intercept_execute(&mut self, addr: u16, opcode: u8) {
+        ()
     }
 }
 
@@ -41,6 +46,21 @@ extern fn write_memory_callback(gb: *mut GB_gameboy_t, addr: u16, data: u8) -> b
     }
 }
 
+extern fn execution_callback(gb: *mut GB_gameboy_t, addr: u16, opcode: u8) {
+    unsafe {
+        let gb = Gameboy::mut_from_callback_ptr(gb);
+
+        match addr {
+            0x0100 => gb.boot_rom_unmapped = true,
+            _ => ()
+        }
+
+        if let Some(interceptor) = &mut gb.memory_interceptor {
+            interceptor.intercept_execute(addr, opcode);
+        }
+    }
+}
+
 impl Gameboy {
     /// Read a byte from memory.
     pub fn read_memory(&mut self, addr: u16) -> u8 {
@@ -61,6 +81,7 @@ impl Gameboy {
         unsafe {
             GB_set_read_memory_callback(self.as_mut_ptr(), Some(read_memory_callback));
             GB_set_write_memory_callback(self.as_mut_ptr(), Some(write_memory_callback));
+            GB_set_execution_callback(self.as_mut_ptr(), Some(execution_callback));
         }
     }
 

@@ -99,7 +99,7 @@ impl Default for RendererOptions {
             track_index: 0,
             stop_condition: StopCondition::Frames(300 * FRAME_RATE as u64),
             fadeout_length: 180,
-            model: Model::CGB(Revision::RevE),
+            model: Model::DMG(Revision::RevB),
         }
     }
 }

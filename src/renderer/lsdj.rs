@@ -2,68 +2,48 @@ use std::fs::File;
 use std::io;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::time::Duration;
 use sameboy::{Gameboy, JoypadButton};
 use crate::renderer::SongPosition;
 
 pub fn select_track_joypad_macro(gb: &mut Gameboy, track_index: u8) {
+    // Skip LittleFM screen if enabled
+    gb.joypad_macro_press(&[JoypadButton::B], None);
+    gb.joypad_macro_press(&[], None);
     // Open the project menu
-    gb.joypad_macro_frame(&[JoypadButton::Select, JoypadButton::Up]);
-    gb.joypad_macro_frame(&[JoypadButton::Select, JoypadButton::Up]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
+    gb.joypad_macro_press(&[JoypadButton::Select], None);
+    gb.joypad_macro_press(&[JoypadButton::Select, JoypadButton::Up], None);
+    gb.joypad_macro_press(&[], None);
     // Scroll to the bottom option
-    for _ in 0..32 {
-        gb.joypad_macro_frame(&[JoypadButton::Down]);
-        gb.joypad_macro_frame(&[JoypadButton::Down]);
-        gb.joypad_macro_frame(&[]);
-        gb.joypad_macro_frame(&[]);
+    for _ in 0..16 {
+        gb.joypad_macro_press(&[JoypadButton::Down], None);
+        gb.joypad_macro_press(&[], None);
     }
     // Select Load/Save
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
+    gb.joypad_macro_press(&[JoypadButton::A], None);
+    gb.joypad_macro_press(&[], None);
     // Select Load
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
+    gb.joypad_macro_press(&[JoypadButton::A], None);
+    gb.joypad_macro_press(&[], None);
     // Scroll to the topmost song
     for _ in 0..32 {
-        gb.joypad_macro_frame(&[JoypadButton::Up]);
-        gb.joypad_macro_frame(&[JoypadButton::Up]);
-        gb.joypad_macro_frame(&[]);
-        gb.joypad_macro_frame(&[]);
+        gb.joypad_macro_press(&[JoypadButton::Up], None);
+        gb.joypad_macro_press(&[], None);
     }
-    // Scroll down to the desired song and select it
+    // Scroll down to the desired song
     for _ in 0..track_index {
-        gb.joypad_macro_frame(&[JoypadButton::Down]);
-        gb.joypad_macro_frame(&[JoypadButton::Down]);
-        gb.joypad_macro_frame(&[JoypadButton::Down]);
-        gb.joypad_macro_frame(&[]);
-        gb.joypad_macro_frame(&[]);
+        gb.joypad_macro_press(&[JoypadButton::Down], None);
+        gb.joypad_macro_press(&[], None);
     }
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
+    // Select the song
+    gb.joypad_macro_press(&[JoypadButton::A], None);
+    gb.joypad_macro_press(&[], None);
     // Dismiss the "save changes?" dialog if it appears
-    gb.joypad_macro_frame(&[JoypadButton::Up]);
-    gb.joypad_macro_frame(&[JoypadButton::Up]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[JoypadButton::Left]);
-    gb.joypad_macro_frame(&[JoypadButton::Left]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[]);
-    gb.joypad_macro_frame(&[JoypadButton::A]);
-    gb.joypad_macro_frame(&[JoypadButton::A]);
+    gb.joypad_macro_press(&[JoypadButton::Left], None);
+    gb.joypad_macro_press(&[], None);
+    gb.joypad_macro_press(&[JoypadButton::A], None);
     // Wait for the song to load
-    for _ in 0..256 {
-        gb.joypad_macro_frame(&[]);
-    }
+    gb.joypad_macro_press(&[], Some(Duration::from_secs(5)));
 }
 
 const LSDJ_ROW_BASE_ADDR: u16 = 0xC200;
