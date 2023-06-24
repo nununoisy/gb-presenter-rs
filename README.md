@@ -43,9 +43,13 @@ and feeds it to FFmpeg to be encoded as a video.
 **Windows**: head to the Releases page and grab the latest binary release. Simply unzip
 and run the executable, and you're all set.
 
-**Linux**: no binaries yet, but you can compile from source. You'll need to have `ffmpeg`
-and optionally `Qt6` development packages installed + a proper SameBoy build environment,
-then clone the repo and run `cargo build --release` to build.
+**Linux**: no binaries yet, but you can compile from source. You'll need:
+- FFmpeg + development libraries
+- Qt6 development packages
+- [a proper SameBoy build environment](sameboy-sys/README.md)
+
+Clone the repo with submodules (`git clone --recursive`), `cd` in, and run
+`cargo build --release` to build.
 
 ## Usage
 
