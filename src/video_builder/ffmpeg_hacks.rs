@@ -74,6 +74,9 @@ pub fn ffmpeg_set_audio_stream_frame_size(stream: &mut StreamMut, variable_frame
 }
 
 pub fn ffmpeg_context_bytes_written(context: &format::context::Output) -> usize {
+    #[cfg(not(feature = "ffmpeg_6_0"))]
     let bytes_written = unsafe { (*(*context.as_ptr()).pb).written };
+    #[cfg(feature = "ffmpeg_6_0")]
+    let bytes_written = unsafe { (*(*context.as_ptr()).pb).bytes_written };
     std::cmp::max(bytes_written, 0) as usize
 }
