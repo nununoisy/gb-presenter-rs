@@ -222,9 +222,18 @@ impl Visualizer {
             let slice_y = y + (i / 4) as f32;
 
             self.canvas.fill_rect(
+                slice_x - (KEY_THICKNESS / 2.0),
+                slice_y,
+                slice_w + KEY_THICKNESS,
+                1.0 + (KEY_THICKNESS / 2.0),
+                &Source::from(Color::new(0xFF, 0, 0, 0)),
+                &DrawOptions::default()
+            );
+            self.canvas.fill_rect(
                 slice_x,
                 slice_y,
-                slice_w, 1.0,
+                slice_w,
+                1.0,
                 &Source::Solid(SolidSource::from(color)),
                 &DrawOptions::default()
             );

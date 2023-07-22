@@ -4,6 +4,8 @@ use ffmpeg_next::Rational;
 #[derive(Clone)]
 pub struct VideoOptions {
     pub output_path: String,
+    pub metadata: HashMap<String, String>,
+    pub background_path: Option<String>,
 
     pub video_time_base: Rational,
     pub video_codec: String,

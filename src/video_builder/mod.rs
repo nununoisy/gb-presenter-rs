@@ -2,6 +2,7 @@ pub mod video_options;
 mod vb_unwrap;
 mod ffmpeg_hacks;
 mod encoding;
+pub mod backgrounds;
 
 use std::collections::VecDeque;
 use std::{mem, slice};
@@ -9,6 +10,7 @@ use std::str::FromStr;
 use ffmpeg_next::{self, Error, Rational, format, encoder, codec, ChannelLayout, Dictionary, software, frame};
 use video_options::VideoOptions;
 use vb_unwrap::VideoBuilderUnwrap;
+use crate::video_builder::backgrounds::{get_video_background, VideoBackground};
 use crate::video_builder::ffmpeg_hacks::{ffmpeg_copy_codec_params, ffmpeg_copy_context_params, ffmpeg_create_context, ffmpeg_sample_format_from_string, ffmpeg_set_audio_stream_frame_size};
 
 pub fn init() -> Result<(), Error> {
@@ -26,6 +28,8 @@ pub fn as_u8_slice<T: Sized>(s: &[T]) -> &[u8] {
 
 pub struct VideoBuilder {
     options: VideoOptions,
+
+    background: Option<Box<dyn VideoBackground>>,
 
     out_ctx: format::context::Output,
 
@@ -50,6 +54,12 @@ impl VideoBuilder {
     pub fn new(options: VideoOptions) -> Result<Self, String> {
         let mut out_ctx = format::output(&options.output_path).vb_unwrap()?;
 
+        let mut metadata = Dictionary::new();
+        for (k, v) in options.metadata.iter() {
+            metadata.set(k.as_str(), v.as_str());
+        }
+        out_ctx.set_metadata(metadata);
+
         let pix_fmt_in = format::Pixel::from_str(&options.pixel_format_in).vb_unwrap()?;
         let pix_fmt_out = format::Pixel::from_str(&options.pixel_format_out).vb_unwrap()?;
         let channel_layout = ChannelLayout::default(options.audio_channels);
@@ -63,18 +73,42 @@ impl VideoBuilder {
             software::scaling::Flags::FAST_BILINEAR
         };
 
-        let v_swc_ctx = software::converter(
-            options.resolution_in,
-            pix_fmt_in,
-            pix_fmt_out
-        ).vb_unwrap()?;
+        let background = match &options.background_path {
+            Some(p) => get_video_background(p, options.resolution_out.0, options.resolution_out.1),
+            None => None
+        };
+        let v_swc_ctx: software::scaling::Context;
+        let v_sws_ctx: software::scaling::Context;
 
-        let v_sws_ctx = software::scaler(
-            pix_fmt_out,
-            scaling_flags,
-            options.resolution_in,
-            options.resolution_out
-        ).vb_unwrap()?;
+        if background.is_some() {
+            // Do scaling first since we need to preserve the alpha information before blitting to the background
+            v_swc_ctx = software::converter(
+                options.resolution_out,
+                pix_fmt_in,
+                pix_fmt_out
+            ).vb_unwrap()?;
+
+            v_sws_ctx = software::scaler(
+                pix_fmt_in,
+                scaling_flags,
+                options.resolution_in,
+                options.resolution_out
+            ).vb_unwrap()?;
+        } else {
+            // Do conversion first if there isn't a background since yuv420p is a lot faster to scale than RGBA
+            v_swc_ctx = software::converter(
+                options.resolution_in,
+                pix_fmt_in,
+                pix_fmt_out
+            ).vb_unwrap()?;
+
+            v_sws_ctx = software::scaler(
+                pix_fmt_out,
+                scaling_flags,
+                options.resolution_in,
+                options.resolution_out
+            ).vb_unwrap()?;
+        }
 
         let swr_in = (
             ffmpeg_sample_format_from_string(&options.sample_format_in),
@@ -93,6 +127,7 @@ impl VideoBuilder {
 
         Ok(Self {
             options,
+            background,
             out_ctx,
             v_encoder,
             v_swc_ctx,

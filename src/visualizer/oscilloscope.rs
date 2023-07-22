@@ -99,11 +99,11 @@ impl Visualizer {
             Point::new(w / 2.0, h),
             Spread::Pad
         );
-        // self.canvas.fill_rect(
-        //     x, y, w, h,
-        //     &bg_source,
-        //     &DrawOptions::new()
-        // );
+        self.canvas.fill_rect(
+            x, y, w, h,
+            &Source::from(Color::new(0xFF, 0, 0, 0)),
+            &DrawOptions::new()
+        );
         if last_state.balance <= 0.5 {
             self.canvas.fill_rect(
                 x, y, w / 2.0, h,

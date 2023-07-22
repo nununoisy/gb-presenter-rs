@@ -4,6 +4,13 @@ use std::time::{Duration, Instant};
 use crate::renderer::{Renderer, SongPosition, render_options::RendererOptions};
 
 #[derive(Clone)]
+pub enum RenderThreadRequest {
+    StartRender(RendererOptions),
+    CancelRender,
+    Terminate
+}
+
+#[derive(Clone)]
 pub struct RenderProgressInfo {
     pub frame: u64,
     pub average_fps: u32,
@@ -22,7 +29,8 @@ pub enum RenderThreadMessage {
     Error(String),
     RenderStarting,
     RenderProgress(RenderProgressInfo),
-    RenderComplete
+    RenderComplete,
+    RenderCancelled
 }
 
 macro_rules! rt_unwrap {
@@ -37,7 +45,7 @@ macro_rules! rt_unwrap {
     };
 }
 
-pub fn render_thread<F>(cb: F) -> (thread::JoinHandle<()>, mpsc::Sender<Option<RendererOptions>>)
+pub fn render_thread<F>(cb: F) -> (thread::JoinHandle<()>, mpsc::Sender<RenderThreadRequest>)
     where
         F: Fn(RenderThreadMessage) + Send + 'static
 {
@@ -45,10 +53,14 @@ pub fn render_thread<F>(cb: F) -> (thread::JoinHandle<()>, mpsc::Sender<Option<R
     let handle = thread::spawn(move || {
         println!("Renderer thread started");
 
-        loop {
+        'main: loop {
             let options = match rx.recv().unwrap() {
-                Some(o) => o,
-                None => return
+                RenderThreadRequest::StartRender(o) => o,
+                RenderThreadRequest::CancelRender => {
+                    cb(RenderThreadMessage::Error("No active render to cancel.".to_string()));
+                    continue;
+                }
+                RenderThreadRequest::Terminate => break 'main
             };
             cb(RenderThreadMessage::RenderStarting);
 
@@ -59,9 +71,16 @@ pub fn render_thread<F>(cb: F) -> (thread::JoinHandle<()>, mpsc::Sender<Option<R
             // Janky way to force an update
             last_progress_timestamp.checked_sub(Duration::from_secs(2));
 
-            loop {
+            'render: loop {
                 match rx.try_recv() {
-                    Ok(None) => return,
+                    Ok(RenderThreadRequest::StartRender(_)) => {
+                        cb(RenderThreadMessage::Error("No active render to cancel.".to_string()))
+                    },
+                    Ok(RenderThreadRequest::CancelRender) => {
+                        cb(RenderThreadMessage::RenderCancelled);
+                        break 'render
+                    },
+                    Ok(RenderThreadRequest::Terminate) => break 'main,
                     _ => ()
                 }
                 if !(rt_unwrap!(renderer.step(), cb)) {

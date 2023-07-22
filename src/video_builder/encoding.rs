@@ -1,3 +1,4 @@
+use std::iter::zip;
 use std::mem;
 use std::str::FromStr;
 use std::time::Duration;
@@ -6,8 +7,30 @@ use crate::video_builder::ffmpeg_hacks::{ffmpeg_context_bytes_written, ffmpeg_sa
 use super::vb_unwrap::VideoBuilderUnwrap;
 use super::VideoBuilder;
 
+fn fast_background_blit(fg: &mut frame::Video, bg: &frame::Video) {
+    const RB_MASK: u32 = 0xFF00FF;
+    const G_MASK: u32 = 0x00FF00;
+
+    for (fg_arr, bg_arr) in zip(fg.plane_mut::<[u8; 4]>(0).iter_mut(), bg.plane::<[u8; 4]>(0).iter()) {
+        let fg_color = u32::from_le_bytes(*fg_arr) & (RB_MASK | G_MASK);
+
+        let pre_blit_bg_arr = [bg_arr[0] / 2, bg_arr[1] / 2, bg_arr[2] / 2, 255];
+        let bg_color = u32::from_le_bytes(pre_blit_bg_arr) & (RB_MASK | G_MASK);
+
+        let mut rb = bg_color & RB_MASK;
+        let mut g = bg_color & G_MASK;
+        let a = fg_arr[3] as u32;
+
+        rb += (((fg_color & RB_MASK) - rb) * a) >> 8;
+        g += (((fg_color & G_MASK) - g) * a) >> 8;
+
+        let o_color = (a << 24) | (rb & RB_MASK) | (g & G_MASK);
+        fg_arr.copy_from_slice(&o_color.to_le_bytes());
+    }
+}
+
 impl VideoBuilder {
-    pub fn push_video_data(&mut self, video: &[u8]) -> Result<(), String> {
+    fn push_video_data_no_bg(&mut self, video: &[u8]) -> Result<(), String> {
         let mut input_frame = frame::Video::new(self.v_swc_ctx.input().format, self.v_swc_ctx.input().width, self.v_swc_ctx.input().height);
         input_frame.data_mut(0).copy_from_slice(video);
 
@@ -20,6 +43,32 @@ impl VideoBuilder {
         self.v_frame_buf.push_back(output_frame);
 
         Ok(())
+    }
+
+    fn push_video_data_bg(&mut self, video: &[u8]) -> Result<(), String> {
+        let mut input_frame = frame::Video::new(self.v_sws_ctx.input().format, self.v_sws_ctx.input().width, self.v_sws_ctx.input().height);
+        input_frame.data_mut(0).copy_from_slice(video);
+
+        let mut resize_frame = frame::Video::new(self.v_sws_ctx.output().format, self.v_sws_ctx.output().width, self.v_sws_ctx.output().height);
+        self.v_sws_ctx.run(&input_frame, &mut resize_frame).vb_unwrap()?;
+
+        let background_frame = self.background.as_mut().unwrap().next_frame();
+        fast_background_blit(&mut resize_frame, &background_frame);
+
+        let mut output_frame = frame::Video::new(self.v_swc_ctx.output().format, self.v_swc_ctx.output().width, self.v_swc_ctx.output().height);
+        self.v_swc_ctx.run(&resize_frame, &mut output_frame).vb_unwrap()?;
+
+        self.v_frame_buf.push_back(output_frame);
+
+        Ok(())
+    }
+
+    pub fn push_video_data(&mut self, video: &[u8]) -> Result<(), String> {
+        if self.options.background_path.is_some() {
+            self.push_video_data_bg(video)
+        } else {
+            self.push_video_data_no_bg(video)
+        }
     }
 
     pub fn push_audio_data(&mut self, audio: &[u8]) -> Result<(), String> {

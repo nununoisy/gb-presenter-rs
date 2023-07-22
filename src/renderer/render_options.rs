@@ -81,6 +81,8 @@ impl Default for RendererOptions {
             input: RenderInput::None,
             video_options: VideoOptions {
                 output_path: "".to_string(),
+                metadata: Default::default(),
+                background_path: None,
                 video_time_base: (70_224, 4_194_304).into(),
                 video_codec: "libx264".to_string(),
                 video_codec_params: Default::default(),

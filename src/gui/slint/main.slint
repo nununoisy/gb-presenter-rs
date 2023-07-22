@@ -3,11 +3,14 @@ import { Button, ComboBox, CheckBox, SpinBox, LineEdit, VerticalBox } from "std-
 export component MainWindow inherits Window {
     callback browse_for_rom();
     callback browse_for_sav();
+    callback browse_for_background();
     callback update_formatted_duration();
     callback start_render();
+    callback cancel_render();
 
     in property <string> rom_path: "";
     in property <string> sav_path: "";
+    in-out property <string> background_path: "";
     in property <bool> input_valid: false;
     in property <bool> lsdj_mode: false;
     in-out property <int> selected_track_index: -1;
@@ -92,6 +95,33 @@ export component MainWindow inherits Window {
                 enabled: !rendering;
                 selected => {
                     root.update_formatted_duration();
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Background:";
+                vertical-alignment: center;
+            }
+            LineEdit {
+                enabled: false;
+                text: background_path;
+                placeholder-text: "No background selected";
+            }
+            Button {
+                text: "Browse...";
+                enabled: !rendering;
+                clicked => {
+                    root.browse_for_background();
+                }
+            }
+            Button {
+                text: "Clear";
+                enabled: !rendering;
+                clicked => {
+                    root.background_path = "";
                 }
             }
         }
@@ -199,11 +229,15 @@ export component MainWindow inherits Window {
             alignment: center;
             Button {
                 text: rendering
-                    ? "Rendering..."
+                    ? "Cancel"
                     : "Render!";
-                enabled: !rendering;
+                primary: !rendering;
                 clicked => {
-                    root.start_render();
+                    if (rendering) {
+                        root.cancel_render();
+                    } else {
+                        root.start_render();
+                    }
                 }
             }
         }
@@ -229,8 +263,8 @@ export component MainWindow inherits Window {
 
                     border-width: 1px;
                     border-radius: 2px;
-                    border-color: #0078d4;  // Palette.themePrimary
-                    background: #0078d4;  // Palette.themePrimary
+                    border-color: #60cdff;  // Palette.themePrimary
+                    background: #60cdff;  // Palette.themePrimary
 
                     animate width {
                         duration: 100ms;

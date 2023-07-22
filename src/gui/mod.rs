@@ -9,11 +9,11 @@ use indicatif::{FormattedDuration, HumanBytes};
 use native_dialog::{FileDialog, MessageDialog, MessageType};
 use slint;
 use sameboy::{Model, Revision};
-use crate::gui::render_thread::RenderThreadMessage;
-use crate::main;
+use crate::gui::render_thread::{RenderThreadMessage, RenderThreadRequest};
 use crate::renderer::gbs::Gbs;
 use crate::renderer::lsdj;
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
+use crate::video_builder::backgrounds::VideoBackground;
 
 slint::include_modules!();
 
@@ -63,17 +63,42 @@ fn browse_for_sav_dialog() -> Option<String> {
     }
 }
 
+fn browse_for_background_dialog() -> Option<String> {
+    let file = FileDialog::new()
+        .add_filter("All supported formats", &["mp4", "mkv", "mov", "avi", "webm", "gif", "jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp", "qoi"])
+        .add_filter("Video background formats", &["mp4", "mkv", "mov", "avi", "webm", "gif"])
+        .add_filter("Image background formats", &["jpg", "jpeg", "png", "bmp", "tif", "tiff", "webp", "qoi"])
+        .show_open_single_file();
+
+    match file {
+        Ok(Some(path)) => Some(path.to_str().unwrap().to_string()),
+        _ => None
+    }
+}
+
 fn browse_for_video_dialog() -> Option<String> {
     let file = FileDialog::new()
-        .add_filter("All supported formats", &["mp4", "mkv"])
+        .add_filter("All supported formats", &["mp4", "mkv", "mov"])
         .add_filter("MPEG-4 Video", &["mp4"])
         .add_filter("Matroska Video", &["mkv"])
+        .add_filter("QuickTime Video", &["mov"])
         .show_save_single_file();
 
     match file {
         Ok(Some(path)) => Some(path.to_str().unwrap().to_string()),
         _ => None
     }
+}
+
+fn confirm_prores_export_dialog() -> bool {
+    MessageDialog::new()
+        .set_title("GBPresenter")
+        .set_text("You have chosen to export a QuickTime video. Do you want to export in ProRes 4444 format to \
+                   preserve alpha information for video editing? Note that ProRes 4444 is a lossless codec, so \
+                   the exported file may be very large.")
+        .set_type(MessageType::Info)
+        .show_confirm()
+        .unwrap()
 }
 
 fn display_error_dialog(text: &str) {
@@ -166,6 +191,17 @@ pub fn run() {
                         ]));
                     }).unwrap();
                 }
+                RenderThreadMessage::RenderCancelled => {
+                    let main_window_weak = main_window_weak.clone();
+                    slint::invoke_from_event_loop(move || {
+                        main_window_weak.unwrap().set_rendering(false);
+                        main_window_weak.unwrap().set_progress(0.0);
+                        main_window_weak.unwrap().set_progress_bar_text("Idle".into());
+                        main_window_weak.unwrap().set_progress_lines(slint_string_arr(vec![
+                            "Render cancelled.".to_string()
+                        ]));
+                    }).unwrap();
+                }
             }
         })
     };
@@ -217,6 +253,21 @@ pub fn run() {
                     display_error_dialog("Unrecognized input file.");
                     main_window_weak.unwrap().set_rom_path("".into());
                     options.borrow_mut().input = RenderInput::None;
+                },
+                None => ()
+            }
+        });
+    }
+
+    {
+        let main_window_weak = main_window.as_weak();
+        let mut options = options.clone();
+        main_window.on_browse_for_background(move || {
+            match browse_for_background_dialog() {
+                Some(path) => {
+                    main_window_weak.unwrap().set_background_path(path.clone().into());
+
+                    options.borrow_mut().video_options.background_path = Some(path.into());
                 },
                 None => ()
             }
@@ -298,6 +349,18 @@ pub fn run() {
                 Some(path) => path,
                 None => return
             };
+
+            if output_path.ends_with(".mov") && confirm_prores_export_dialog() {
+                // Fairly close approximation of the Game Boy's frame rate with a timebase denominator <100000.
+                // Required to avoid "codec timebase is very high" warning from the QuickTime encoder.
+                options.borrow_mut().video_options.video_time_base = (1_097, 65_536).into();
+                // -c:v prores_ks -profile:v 4 -bits_per_mb 1000 -pix_fmt yuva444p10le
+                options.borrow_mut().video_options.video_codec = "prores_ks".to_string();
+                options.borrow_mut().video_options.video_codec_params.insert("profile".to_string(), "4".to_string());
+                options.borrow_mut().video_options.video_codec_params.insert("bits_per_mb".to_string(), "1000".to_string());
+                options.borrow_mut().video_options.pixel_format_out = "yuva444p10le".to_string();
+            }
+
             options.borrow_mut().video_options.output_path = output_path;
 
             match &options.borrow().stop_condition {
@@ -336,13 +399,24 @@ pub fn run() {
                 _ => unreachable!()
             };
 
-            rt_tx.send(Some(options.borrow().clone())).unwrap();
+            if main_window_weak.unwrap().get_background_path().is_empty() {
+                options.borrow_mut().video_options.background_path = None;
+            }
+
+            rt_tx.send(RenderThreadRequest::StartRender(options.borrow().clone())).unwrap();
+        });
+    }
+
+    {
+        let rt_tx = rt_tx.clone();
+        main_window.on_cancel_render(move || {
+            rt_tx.send(RenderThreadRequest::CancelRender).unwrap();
         });
     }
 
     main_window.run().unwrap();
 
-    if rt_tx.send(None).is_ok() {
+    if rt_tx.send(RenderThreadRequest::Terminate).is_ok() {
         // If the send failed, the channel is closed, so the thread is probably already dead.
         rt_handle.join().unwrap();
     }
