@@ -11,7 +11,7 @@ use slint;
 use sameboy::{Model, Revision};
 use crate::gui::render_thread::{RenderThreadMessage, RenderThreadRequest};
 use crate::renderer::gbs::Gbs;
-use crate::renderer::lsdj;
+use crate::renderer::{lsdj, vgm};
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
 use crate::video_builder::backgrounds::VideoBackground;
 
@@ -41,9 +41,10 @@ fn slint_int_arr<I, N>(a: I) -> slint::ModelRc<i32>
 
 fn browse_for_rom_dialog() -> Option<String> {
     let file = FileDialog::new()
-        .add_filter("All supported formats", &["gb", "gbs"])
+        .add_filter("All supported formats", &["gb", "gbs", "vgm"])
         .add_filter("LSDj ROMs", &["gb"])
         .add_filter("GameBoy Sound Files", &["gbs"])
+        .add_filter("Furnace/DefleMask VGMs", &["vgm"])
         .show_open_single_file();
 
     match file {
@@ -213,7 +214,8 @@ pub fn run() {
             match browse_for_rom_dialog() {
                 Some(path) => {
                     main_window_weak.unwrap().set_rom_path(path.clone().into());
-                    main_window_weak.unwrap().set_lsdj_mode(false);
+                    main_window_weak.unwrap().set_sav_path("".into());
+                    main_window_weak.unwrap().set_input_type(InputType::None);
                     main_window_weak.unwrap().set_input_valid(false);
 
                     main_window_weak.unwrap().set_selected_track_index(-1);
@@ -229,7 +231,9 @@ pub fn run() {
                             display_error_dialog("Unsupported LSDj version! Please select a ROM that is v5.x or newer.");
                             return;
                         }
-                        main_window_weak.unwrap().set_lsdj_mode(true);
+                        main_window_weak.unwrap().set_sav_path("".into());
+                        main_window_weak.unwrap().set_input_type(InputType::LSDj);
+                        main_window_weak.unwrap().set_input_valid(false);
                         options.borrow_mut().input = RenderInput::LSDj(path.clone(), "".to_string());
                         return;
                     }
@@ -246,7 +250,21 @@ pub fn run() {
                         main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
 
                         main_window_weak.unwrap().set_input_valid(true);
+                        main_window_weak.unwrap().set_input_type(InputType::GBS);
                         options.borrow_mut().input = RenderInput::GBS(path.clone());
+                        return;
+                    }
+
+                    if let Ok(vgm_s) = vgm::Vgm::open(path.clone()) {
+                        let song_title = match vgm_s.gd3_metadata() {
+                            Some(gd3) => gd3.title,
+                            None => "<?>".to_string()
+                        };
+                        main_window_weak.unwrap().set_track_titles(slint_string_arr(vec![song_title]));
+
+                        main_window_weak.unwrap().set_input_valid(true);
+                        main_window_weak.unwrap().set_input_type(InputType::VGM);
+                        options.borrow_mut().input = RenderInput::VGM(path.clone());
                         return;
                     }
 
@@ -290,7 +308,7 @@ pub fn run() {
                     main_window_weak.unwrap().invoke_update_formatted_duration();
 
                     if let Ok(Some(track_titles)) = lsdj::get_track_titles_from_save(path.clone()) {
-                        main_window_weak.unwrap().set_lsdj_mode(true);
+                        main_window_weak.unwrap().set_input_type(InputType::LSDj);
                         main_window_weak.unwrap().set_input_valid(true);
 
                         options.borrow_mut().input = RenderInput::LSDj(main_window_weak.unwrap().get_rom_path().to_string(), path.clone());
@@ -307,6 +325,10 @@ pub fn run() {
         let main_window_weak = main_window.as_weak();
         let mut options = options.clone();
         main_window.on_update_formatted_duration(move || {
+            if main_window_weak.unwrap().get_selected_track_index() == -1 {
+                main_window_weak.unwrap().set_track_duration_formatted("<unknown>".into());
+            }
+
             let new_duration_type = main_window_weak.unwrap()
                 .get_track_duration_type()
                 .to_string();
@@ -328,7 +350,16 @@ pub fn run() {
                         let seconds = frames as f64 / 60.0;
                         FormattedDuration(Duration::from_secs_f64(seconds)).to_string()
                     },
-                    StopCondition::Loops(_) => "<unknown>".to_string()
+                    StopCondition::Loops(loops) => {
+                        if let RenderInput::VGM(vgm_path) = options.borrow().input.clone() {
+                            let vgm_s = vgm::Vgm::open(vgm_path).unwrap();
+                            let frames = vgm::duration_frames(&vgm_s, loops);
+                            let seconds = frames as f64 / 60.0;
+                            FormattedDuration(Duration::from_secs_f64(seconds)).to_string()
+                        } else {
+                            "<unknown>".to_string()
+                        }
+                    }
                 };
                 main_window_weak.unwrap().set_track_duration_formatted(label.into());
             }
@@ -363,11 +394,17 @@ pub fn run() {
 
             options.borrow_mut().video_options.output_path = output_path;
 
-            match &options.borrow().stop_condition {
-                StopCondition::Loops(_) => {
-                    if !main_window_weak.unwrap().get_lsdj_mode() {
+            let stop_condition = options.borrow().stop_condition.clone();
+            let render_input = options.borrow().input.clone();
+            match stop_condition {
+                StopCondition::Loops(loops) => {
+                    if main_window_weak.unwrap().get_input_type() == InputType::GBS {
                         display_error_dialog("Loop detection is not supported for GBS files. Please select a different duration type.");
                         return;
+                    } else if let RenderInput::VGM(vgm_path) = render_input {
+                        let vgm_s = vgm::Vgm::open(vgm_path).unwrap();
+                        let frames = vgm::duration_frames(&vgm_s, loops);
+                        options.borrow_mut().stop_condition = StopCondition::Frames(frames as u64);
                     }
                 },
                 _ => ()

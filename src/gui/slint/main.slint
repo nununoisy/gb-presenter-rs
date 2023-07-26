@@ -1,5 +1,9 @@
 import { Button, ComboBox, CheckBox, SpinBox, LineEdit, VerticalBox } from "std-widgets.slint";
 
+export enum InputType {
+    None, LSDj, GBS, VGM
+}
+
 export component MainWindow inherits Window {
     callback browse_for_rom();
     callback browse_for_sav();
@@ -12,7 +16,7 @@ export component MainWindow inherits Window {
     in property <string> sav_path: "";
     in-out property <string> background_path: "";
     in property <bool> input_valid: false;
-    in property <bool> lsdj_mode: false;
+    in property <InputType> input_type: None;
     in-out property <int> selected_track_index: -1;
     in-out property <string> selected_track_text: "Select a track...";
     in-out property <int> selected_model_index: 0;
@@ -45,7 +49,7 @@ export component MainWindow inherits Window {
             alignment: stretch;
             spacing: 8px;
             Text {
-                text: "Input ROM/GBS:";
+                text: "Input ROM/GBS/VGM:";
                 vertical-alignment: center;
             }
             LineEdit {
@@ -61,7 +65,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if lsdj_mode : HorizontalLayout {
+        if input_type == InputType.LSDj : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             Text {
@@ -140,9 +144,9 @@ export component MainWindow inherits Window {
                 }
             }
             ComboBox {
-                model: lsdj_mode
-                    ? ["seconds", "frames", "loops"]
-                    : ["seconds", "frames"];
+                model: input_type == InputType.VGM ? ["seconds", "frames", "loops"]
+                     : input_type == InputType.LSDj ? ["seconds", "frames", "loops"]
+                     : ["seconds", "frames"];
                 current-value <=> track_duration_type;
                 enabled: !rendering;
                 selected => {

@@ -60,7 +60,8 @@ extra_str_traits!(StopCondition);
 pub enum RenderInput {
     None,
     GBS(String),
-    LSDj(String, String)
+    LSDj(String, String),
+    VGM(String)
 }
 
 #[derive(Clone)]

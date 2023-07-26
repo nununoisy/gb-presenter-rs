@@ -1,6 +1,7 @@
 pub mod render_options;
 pub mod lsdj;
 pub mod gbs;
+pub mod vgm;
 
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
@@ -105,6 +106,17 @@ impl Renderer {
 
                 self.gb.joypad_macro_press(&[], Some(Duration::from_millis(5000)));
                 lsdj::select_track_joypad_macro(&mut self.gb, self.options.track_index);
+            },
+            RenderInput::VGM(vgm_path) => {
+                let vgm_data = fs::read(vgm_path)
+                    .map_err(|e| format!("Failed to read VGM! {}", e))?;
+
+                let mut vgm_s = vgm::Vgm::new(&vgm_data)?;
+                let (gbs, engine_data) = vgm::converter::vgm_to_gbs(&mut vgm_s)?;
+
+                println!("{:?}", engine_data.loop_data);
+
+                self.gb.load_gbs(&gbs);
             }
         }
 
