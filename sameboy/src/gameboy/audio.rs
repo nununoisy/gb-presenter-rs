@@ -5,6 +5,16 @@ use std::rc::Rc;
 use sameboy_sys::{GB_apu_set_sample_callback, GB_channel_t, GB_channel_t_GB_NOISE, GB_channel_t_GB_SQUARE_1, GB_channel_t_GB_SQUARE_2, GB_channel_t_GB_WAVE, GB_gameboy_t, GB_get_apu_wave_table, GB_get_channel_amplitude, GB_get_channel_edge_triggered, GB_get_channel_period, GB_get_channel_volume, GB_is_channel_muted, GB_sample_t, GB_set_channel_muted, GB_set_sample_rate};
 use super::Gameboy;
 
+// list(sorted(set(float(max(r, 0.5) * (2**s)) for r in range(0,8) for s in range(0,16))))
+const NOISE_PERIODS: [f64; 68] = [
+    0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0, 14.0, 16.0, 20.0, 24.0, 28.0, 32.0, 40.0, 48.0, 56.0,
+    64.0, 80.0, 96.0, 112.0, 128.0, 160.0, 192.0, 224.0, 256.0, 320.0, 384.0, 448.0, 512.0, 640.0, 768.0, 896.0, 1024.0,
+    1280.0, 1536.0, 1792.0, 2048.0, 2560.0, 3072.0, 3584.0, 4096.0, 5120.0, 6144.0, 7168.0, 8192.0, 10240.0, 12288.0,
+    14336.0, 16384.0, 20480.0, 24576.0, 28672.0, 32768.0, 40960.0, 49152.0, 57344.0, 65536.0, 81920.0, 98304.0, 114688.0,
+    131072.0, 163840.0, 196608.0, 229376.0
+];
+const C_0: f64 = 16.351597831287;
+
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub enum ApuChannel {
     #[default]
@@ -187,7 +197,9 @@ fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
     };
     // Purely for visualizer aesthetic
     // let frequency = (262144.0 / period).sqrt() / 4.0;
-    let frequency = 17.351597831287 + (period.log2() / 2.0);
+    // let frequency = 17.351597831287 + (period.log2() / 2.0);
+    let lfsr_index = NOISE_PERIODS.iter().position(|p| *p == period).unwrap();
+    let frequency = C_0 * (2.0_f64).powf(lfsr_index as f64 / 69.0);
 
     // Timbre is just LFSR short mode
     let timbre = ((nr43 >> 3) & 1) as usize;
