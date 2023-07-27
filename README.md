@@ -9,26 +9,29 @@ chiptunes, based on [SameBoy][sameboy], [FFmpeg][ffmpeg],
 and [Slint][slint].
 The visualization design is essentially a port of the piano roll from
 [RusticNES][rusticnes].
-It supports playing music from GBS files and from
-save files for most versions of [Little Sound Dj][lsdj].
+It supports playing music from GBS files, VGM files exported from
+[Furnace][furnace]/[DefleMask][deflemask], and from save files for most
+versions of [Little Sound Dj][lsdj].
 
 ## Functionality
 
-GBPresenter runs your GBS or LSDj ROM in SameBoy and captures the
+GBPresenter runs your GBS, VGM, or LSDj ROM in SameBoy and captures the
 state of the APU channels every frame. It then generates a visualization
 and feeds it to FFmpeg to be encoded as a video.
 
 ## Features
 
-- Supports GBS files and LSDj ROM+SAV.
-    - Support for additional formats (LSDSNG, VGM, GBTPlayer) is planned.
+- Supports GBS files, VGM files, and LSDj ROM+SAV.
+    - VGM support is made possible by [Pegmode's GBS driver][pegmode-driver].
+    - Support for additional formats (LSDSNG, GBTPlayer) is planned.
 - Built on SameBoy for extremely accurate sound emulation.
     - It usually sounds just as good as a recording of a DMG with a ProSound mod.
 - Outputs a video file:
     - Customizable resolution (default 1080p) at 59.97 FPS (the GameBoy's true framerate).
     - MPEG-4 container with fast-start (`moov` atom at beginning of file).
-    - Matroska (MKV) containers are also supported.
+    - Matroska (MKV) and QuickTime (MOV) containers are also supported.
     - yuv420p H.264 video stream encoded with libx264, crf: 16.
+    - If using QuickTime, ProRes 4444 streams encoded with prores_ks are also supported.
     - Stereo AAC LC audio stream encoded with FFmpeg's aac encoder, bitrate: 384k.
 - Video files are suitable for direct upload to most websites:
     - Outputs the recommended format for YouTube, Twitter, and Discord (w/ Nitro).
@@ -37,6 +40,7 @@ and feeds it to FFmpeg to be encoded as a video.
     - Supported on LSDj 5.x and up.
     - Support for `HFF` detection is planned.
     - Support for loop detection for tracker-exported GBS files is planned.
+- Loop detection for VGM files is supported.
 
 ## Installation
 
@@ -55,7 +59,7 @@ Clone the repo with submodules (`git clone --recursive`), `cd` in, and run
 
 ### GUI
 
-1. Click **Browse...** to select a GBS or an LSDj ROM file.
+1. Click **Browse...** to select a GBS, VGM, or an LSDj ROM file.
 2. If you selected an LSDj ROM file, select **Browse...** next to the
    **LSDj SAV** field to select your LSDj save file.
 3. Select a track to be rendered from the dropdown.
@@ -67,9 +71,18 @@ Clone the repo with submodules (`git clone --recursive`), `cd` in, and run
    video duration above, rather it's added on to the end.
 6. Select the output video resolution. You can enter a custom resolution
    or use the 1080p/4K presets.
-7. Click **Render!** to select the output video filename and begin rendering
+7. Optionally select a background for the visualization. You can select many
+   common image and video formats to use as a background.
+    - You can also elect to export a transparent video later if you would like
+      to use a video editor.
+    - *Note:* Video backgrounds must be 60 FPS, or they will play at
+      the wrong speed. A fix for this is planned.
+8. Click **Render!** to select the output video filename and begin rendering
    the visualization.
-8. Once the render is complete, you can select another track or even change
+    - If you would like to render a transparent video for editing, then choose
+      a filename ending in `.mov` to export in a QuickTime container. When asked
+      if you would like to export using ProRes 4444, select **OK**.
+9. Once the render is complete, you can select another track or even change
    modules to render another tune.
 
 ### CLI
@@ -106,3 +119,6 @@ Additional options:
 [ffmpeg]: https://github.com/FFmpeg/FFmpeg
 [slint]: https://slint-ui.com
 [lsdj]: https://www.littlesounddj.com/lsd/index.php
+[pegmode-driver]: https://github.com/Pegmode/Deflemask-GB-Engine
+[furnace]: https://github.com/tildearrow/furnace
+[deflemask]: https://www.deflemask.com/
