@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 use std::ffi::OsStr;
 use sameboy::{Model, Revision};
 use crate::video_builder::video_options::VideoOptions;
+use crate::visualizer::channel_settings::ChannelSettings;
 
 pub const FRAME_RATE: i32 = 60;
 
@@ -73,7 +75,8 @@ pub struct RendererOptions {
     pub stop_condition: StopCondition,
     pub fadeout_length: u64,
 
-    pub model: Model
+    pub model: Model,
+    pub channel_settings: HashMap<(String, String), ChannelSettings>
 }
 
 impl Default for RendererOptions {
@@ -103,6 +106,7 @@ impl Default for RendererOptions {
             stop_condition: StopCondition::Frames(300 * FRAME_RATE as u64),
             fadeout_length: 180,
             model: Model::DMG(Revision::RevB),
+            channel_settings: HashMap::new()
         }
     }
 }

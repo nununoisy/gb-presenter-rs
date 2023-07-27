@@ -1,0 +1,137 @@
+import { Button, VerticalBox, LineEdit } from "std-widgets.slint";
+
+export global ColorUtils {
+    pure callback color-to-hex(color) -> string;
+    pure callback hex-to-color(string) -> color;
+    pure callback color-components(color) -> [int];
+}
+
+component ColorSlider inherits Rectangle {
+    in-out property<float> maximum: 255;
+    in-out property<float> minimum: 0;
+    in-out property<int> value;
+
+    in property<color> left-color: #000;
+    in property<color> right-color: #fff;
+
+    callback moved();
+
+    min-height: 24px;
+    min-width: 100px;
+    horizontal-stretch: 1;
+    vertical-stretch: 0;
+
+    border-radius: root.height/2;
+    background: @linear-gradient(90deg, left-color 0%, right-color 100%);
+    border-width: 1px;
+    border-color: #999;
+
+    handle := Rectangle {
+        width: self.height;
+        height: parent.height;
+        border-width: 3px;
+        border-radius: self.height / 2;
+        background: touch.pressed ? #f8f: touch.has-hover ? #66f : #0000ff;
+        border-color: self.background.darker(50%);
+        x: (root.width - handle.width) * (root.value - root.minimum)/(root.maximum - root.minimum);
+    }
+    touch := TouchArea {
+        property <float> pressed-value;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                self.pressed-value = root.value;
+            }
+        }
+        moved => {
+            if (self.enabled && self.pressed) {
+                root.value = max(root.minimum, min(root.maximum,
+                    self.pressed-value + (touch.mouse-x - touch.pressed-x) * (root.maximum - root.minimum) / (root.width - handle.width)));
+                root.moved();
+            }
+        }
+    }
+}
+
+export component ColorPicker {
+    in-out property<int> r: 255;
+    in-out property<int> g: 255;
+    in-out property<int> b: 255;
+    out property<color> value: Colors.rgb(r, g, b);
+
+    callback changed(int, int, int);
+
+    function update-value() {
+        value = Colors.rgb(r, g, b);
+        changed(r, g, b);
+    }
+
+    function update-rgb() {
+        r = ColorUtils.color-components(value)[0];
+        g = ColorUtils.color-components(value)[1];
+        b = ColorUtils.color-components(value)[2];
+        changed(r, g, b);
+    }
+
+    VerticalBox {
+        alignment: start;
+        HorizontalLayout {
+            alignment: space-between;
+            Rectangle {
+                background: rgb(root.r, root.g, root.b);
+                width: 50%;
+                border-radius: 4px;
+                border-width: 1px;
+                border-color: #999;
+            }
+            LineEdit {
+                text: ColorUtils.color-to-hex(value);
+                accepted(hex) => {
+                    root.value = ColorUtils.hex-to-color(hex);
+                    update-rgb();
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            Text {
+                vertical-alignment: center;
+                text: root.r;
+                width: 30px;
+            }
+            ColorSlider {
+                value <=> root.r;
+                left-color: rgb(0, root.g, root.b);
+                right-color: rgb(255, root.g, root.b);
+                moved => { root.update-value(); }
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            Text {
+                vertical-alignment: center;
+                text: root.g;
+                width: 30px;
+            }
+            ColorSlider {
+                value <=> root.g;
+                left-color: rgb(root.r, 0, root.b);
+                right-color: rgb(root.r, 255, root.b);
+                moved => { root.update-value(); }
+            }
+        }
+        HorizontalLayout {
+            alignment: stretch;
+            Text {
+                vertical-alignment: center;
+                text: root.b;
+                width: 30px;
+            }
+            ColorSlider {
+                value <=> root.b;
+                left-color: rgb(root.r, root.g, 0);
+                right-color: rgb(root.r, root.g, 255);
+                moved => { root.update-value(); }
+            }
+        }
+    }
+}

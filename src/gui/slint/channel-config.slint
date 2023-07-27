@@ -1,0 +1,113 @@
+import { VerticalBox, ComboBox, Switch, StandardButton } from "std-widgets.slint";
+import { ColorPicker } from "./color-picker.slint";
+
+export struct ChannelConfig {
+    name: string,
+    hidden: bool,
+    colors: [[int]]
+}
+
+component ChannelConfigRow {
+    in-out property<ChannelConfig> config;
+    in property<bool> enabled: true;
+
+    callback updated(ChannelConfig);
+
+    HorizontalLayout {
+        alignment: stretch;
+
+/*
+        Switch {
+            text: root.config.name;
+            checked: !root.config.hidden;
+            enabled: root.enabled;
+            width: 150px;
+
+            toggled => {
+                root.config.hidden = !root.config.hidden;
+                root.updated(root.config);
+            }
+        }
+*/
+
+        Text {
+            text: root.config.name;
+            width: 150px;
+            height: 20px;
+            vertical-alignment: center;
+        }
+
+        for color[i] in config.colors: Rectangle {
+            Rectangle {
+                background: (root.config.hidden || !root.enabled) ? root.grayscale(color) : Colors.rgb(color[0], color[1], color[2]);
+                x: 2px;
+                y: 2px;
+                height: parent.height - 4px;
+                width: parent.width - 4px;
+                border-radius: 4px;
+            }
+
+            i-popup := PopupWindow {
+                width: 350px;
+                close-on-click: false;
+
+                Rectangle {
+                    height: 100%;
+                    width: 100%;
+                    background: #1c1c1c;
+                    border-radius: 2px;
+                }
+                VerticalBox {
+                    alignment: start;
+                    ColorPicker {
+                        width: 350px;
+                        r: color[0];
+                        g: color[1];
+                        b: color[2];
+                        changed(r, g, b) => {
+                            root.config.colors[i] = [r, g, b];
+                        }
+                    }
+                    StandardButton {
+                        kind: ok;
+                        clicked => {
+                            i-popup.close();
+                        }
+                    }
+                }
+            }
+            i-touch := TouchArea {
+                mouse-cursor: (root.config.hidden || !root.enabled) ? default : pointer;
+                clicked => {
+                    if (!root.config.hidden && root.enabled) {
+                        i-popup.show();
+                    }
+                }
+            }
+        }
+    }
+
+    function luma-gray(c: [int]) -> int {
+        return Math.round(0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]);
+    }
+
+    function grayscale(c: [int]) -> color {
+        return Colors.rgb(luma-gray(c), luma-gray(c), luma-gray(c));
+    }
+}
+
+export component ChannelConfigView {
+    in-out property<[ChannelConfig]> config-lr35902;
+    in property<bool> enabled: true;
+
+    VerticalBox {
+        alignment: start;
+        for config[i] in config-lr35902: ChannelConfigRow {
+            config: config;
+            enabled: root.enabled;
+            updated(new-config) => {
+                root.config-lr35902[i] = new-config;
+            }
+        }
+    }
+}

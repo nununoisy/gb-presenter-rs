@@ -28,8 +28,20 @@ impl ChannelSettings {
         result
     }
 
+    pub fn colors(&self) -> Vec<Color> {
+        self.2.clone()
+    }
+
     pub fn num_colors(&self) -> usize {
         self.2.len()
+    }
+
+    pub fn set_hidden(&mut self, hidden: bool) {
+        self.1 = hidden;
+    }
+
+    pub fn set_colors(&mut self, colors: &[Color]) {
+        self.2 = colors.to_vec();
     }
 }
 

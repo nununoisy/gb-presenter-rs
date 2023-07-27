@@ -1,4 +1,7 @@
 import { Button, ComboBox, CheckBox, SpinBox, LineEdit, VerticalBox } from "std-widgets.slint";
+import { ChannelConfigView, ChannelConfig } from "./channel-config.slint";
+import { ColorUtils } from "./color-picker.slint";
+export { ColorUtils }
 
 export enum InputType {
     None, LSDj, GBS, VGM
@@ -28,6 +31,13 @@ export component MainWindow inherits Window {
     in-out property <int> output_width: 1920;
     in-out property <int> output_height: 1080;
     in property <[string]> track_titles: [];
+
+    in-out property<[ChannelConfig]> config-lr35902: [
+        { name: "Pulse 1", hidden: false, colors: [] },
+        { name: "Pulse 2", hidden: false, colors: [] },
+        { name: "Wave", hidden: false, colors: [] },
+        { name: "Noise", hidden: false, colors: [] }
+    ];
 
     in property <bool> rendering: false;
     in property <float> progress: 0.0;
@@ -101,6 +111,10 @@ export component MainWindow inherits Window {
                     root.update_formatted_duration();
                 }
             }
+        }
+        ChannelConfigView {
+            enabled: !rendering;
+            config-lr35902 <=> root.config-lr35902;
         }
         HorizontalLayout {
             alignment: stretch;

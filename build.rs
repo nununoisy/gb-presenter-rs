@@ -34,5 +34,7 @@ fn ffmpeg_sys_version_detect() {
 fn main() {
     ffmpeg_sys_version_detect();
     apply_windows_resources();
+    compile("src/gui/slint/color-picker.slint");
+    compile("src/gui/slint/channel-config.slint");
     compile("src/gui/slint/main.slint");
 }

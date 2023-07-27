@@ -1,6 +1,7 @@
 mod render_thread;
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -8,12 +9,14 @@ use std::time::Duration;
 use indicatif::{FormattedDuration, HumanBytes};
 use native_dialog::{FileDialog, MessageDialog, MessageType};
 use slint;
-use sameboy::{Model, Revision};
+use slint::{Color, Model as _};
+use sameboy::{ApuChannel, Model, Revision};
 use crate::gui::render_thread::{RenderThreadMessage, RenderThreadRequest};
 use crate::renderer::gbs::Gbs;
 use crate::renderer::{lsdj, vgm};
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
 use crate::video_builder::backgrounds::VideoBackground;
+use crate::visualizer::channel_settings::{ChannelSettingsManager, ChannelSettings};
 
 slint::include_modules!();
 
@@ -37,6 +40,25 @@ fn slint_int_arr<I, N>(a: I) -> slint::ModelRc<i32>
         .map(|n| n.into())
         .collect();
     slint::ModelRc::new(slint::VecModel::from(int_vec))
+}
+
+fn slint_color_component_arr<I: IntoIterator<Item = raqote::Color>>(a: I) -> slint::ModelRc<slint::ModelRc<i32>> {
+    let color_vecs: Vec<slint::ModelRc<i32>> = a.into_iter()
+        .map(|c| slint::ModelRc::new(slint::VecModel::from(vec![c.r() as i32, c.g() as i32, c.b() as i32])))
+        .collect();
+    slint::ModelRc::new(slint::VecModel::from(color_vecs))
+}
+
+fn get_default_channel_settings() -> HashMap<(String, String), ChannelSettings> {
+    let manager = ChannelSettingsManager::default();
+    let mut result: HashMap<(String, String), ChannelSettings> = HashMap::new();
+
+    result.insert(("LR35902".to_string(), "Pulse 1".to_string()), manager.settings(ApuChannel::Pulse1));
+    result.insert(("LR35902".to_string(), "Pulse 2".to_string()), manager.settings(ApuChannel::Pulse2));
+    result.insert(("LR35902".to_string(), "Wave".to_string()), manager.settings(ApuChannel::Wave));
+    result.insert(("LR35902".to_string(), "Noise".to_string()), manager.settings(ApuChannel::Noise));
+
+    result
 }
 
 fn browse_for_rom_dialog() -> Option<String> {
@@ -113,6 +135,45 @@ fn display_error_dialog(text: &str) {
 
 pub fn run() {
     let main_window = MainWindow::new().unwrap();
+
+    main_window.global::<ColorUtils>().on_hex_to_color(|hex| {
+        let rgb = u32::from_str_radix(hex.to_string().trim_start_matches("#"), 16).unwrap_or(0);
+
+        Color::from_argb_encoded(0xFF000000 | rgb)
+    });
+
+    main_window.global::<ColorUtils>().on_color_to_hex(|color| {
+        format!("#{:02x}{:02x}{:02x}", color.red(), color.green(), color.blue()).into()
+    });
+
+    main_window.global::<ColorUtils>().on_color_components(|color| {
+        slint_int_arr([color.red() as i32, color.green() as i32, color.blue() as i32])
+    });
+
+    let channel_settings = get_default_channel_settings();
+    for ((chip, channel), settings) in channel_settings.iter() {
+        let configs_model = match chip.as_str() {
+            "LR35902" => main_window.get_config_lr35902(),
+            _ => continue
+        };
+        let mut configs: Vec<ChannelConfig> = configs_model
+            .as_any()
+            .downcast_ref::<slint::VecModel<ChannelConfig>>()
+            .unwrap()
+            .iter()
+            .collect();
+
+        if let Some(config) = configs.iter_mut().find(|cfg| channel.clone() == cfg.name.to_string()) {
+            config.hidden = settings.hidden();
+            config.colors = slint_color_component_arr(settings.colors());
+        }
+        let new_config_model = slint::ModelRc::new(slint::VecModel::from(configs));
+        match chip.as_str() {
+            "LR35902" => main_window.set_config_lr35902(new_config_model),
+            _ => continue
+        };
+    }
+
     let mut options = Rc::new(RefCell::new(RendererOptions::default()));
 
     let (rt_handle, rt_tx) = {
@@ -435,6 +496,44 @@ pub fn run() {
                 "AGB" => Model::AGB,
                 _ => unreachable!()
             };
+
+            let mut channel_settings = get_default_channel_settings();
+            for ((chip, channel), settings) in channel_settings.iter_mut() {
+                let configs_model = match chip.as_str() {
+                    "LR35902" => main_window_weak.unwrap().get_config_lr35902(),
+                    _ => continue
+                };
+                let config = configs_model
+                    .as_any()
+                    .downcast_ref::<slint::VecModel<ChannelConfig>>()
+                    .unwrap()
+                    .iter()
+                    .find(|cfg| cfg.name.to_string() == channel.clone())
+                    .unwrap();
+
+                let colors: Vec<raqote::Color> = config.colors
+                    .as_any()
+                    .downcast_ref::<slint::VecModel<slint::ModelRc<i32>>>()
+                    .unwrap()
+                    .iter()
+                    .map(|color_model| {
+                        let mut component_iter = color_model
+                            .as_any()
+                            .downcast_ref::<slint::VecModel<i32>>()
+                            .unwrap()
+                            .iter();
+                        let r = component_iter.next().unwrap() as u8;
+                        let g = component_iter.next().unwrap() as u8;
+                        let b = component_iter.next().unwrap() as u8;
+
+                        raqote::Color::new(0xFF, r, g, b)
+                    })
+                    .collect();
+
+                settings.set_hidden(config.hidden);
+                settings.set_colors(&colors);
+            }
+            options.borrow_mut().channel_settings = channel_settings;
 
             if main_window_weak.unwrap().get_background_path().is_empty() {
                 options.borrow_mut().video_options.background_path = None;

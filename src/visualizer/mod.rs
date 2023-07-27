@@ -1,5 +1,5 @@
 mod oscilloscope;
-mod channel_settings;
+pub mod channel_settings;
 mod tile_map;
 mod filters;
 mod piano_roll;
@@ -66,6 +66,14 @@ impl Visualizer {
 
     pub fn clear(&mut self) {
         self.canvas.clear(SolidSource::from_unpremultiplied_argb(0, 0, 0, 0));
+    }
+
+    pub fn settings_manager(&self) -> ChannelSettingsManager {
+        self.settings.clone()
+    }
+
+    pub fn settings_manager_mut(&mut self) -> &mut ChannelSettingsManager {
+        &mut self.settings
     }
 }
 

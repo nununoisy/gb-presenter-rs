@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use ringbuf::{HeapRb, Rb};
 use ringbuf::ring_buffer::RbBase;
 use render_options::{RendererOptions, RenderInput};
-use sameboy::{Gameboy, JoypadButton, Model};
+use sameboy::{ApuChannel, Gameboy, JoypadButton, Model};
 use crate::renderer::render_options::StopCondition;
 use crate::video_builder;
 use crate::video_builder::VideoBuilder;
@@ -128,6 +128,23 @@ impl Renderer {
         }
         // Clear the sample buffer to get rid of boot ROM ding and LSDj selection frame silence
         let _ = self.gb.get_audio_samples(None).unwrap();
+
+        for ((chip, channel), settings) in &self.options.channel_settings {
+            let mut viz = self.viz.borrow_mut();
+            let manager = match chip.as_str() {
+                "LR35902" => viz.settings_manager_mut(),
+                _ => continue
+            };
+            let current_settings = manager.settings_mut(match channel.as_str() {
+                "Pulse 1" => ApuChannel::Pulse1,
+                "Pulse 2" => ApuChannel::Pulse2,
+                "Wave" => ApuChannel::Wave,
+                "Noise" => ApuChannel::Noise,
+                _ => continue
+            });
+            current_settings.set_hidden(settings.hidden());
+            current_settings.set_colors(&settings.colors());
+        }
 
         self.vb.start_encoding()?;
         self.encode_start = Instant::now();
