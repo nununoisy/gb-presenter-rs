@@ -36,18 +36,38 @@ impl Gd3 {
             .into_bytes();
         let mut string_table = string_table_bytes.split(|c| *c == 0);
 
-        // TODO handle errors instead of panicking
-        result.title = String::from_utf8(string_table.next().unwrap().to_vec()).unwrap();
-        string_table.next().unwrap();
-        result.game = String::from_utf8(string_table.next().unwrap().to_vec()).unwrap();
-        string_table.next().unwrap();
-        result.system = String::from_utf8(string_table.next().unwrap().to_vec()).unwrap();
-        string_table.next().unwrap();
-        result.author = String::from_utf8(string_table.next().unwrap().to_vec()).unwrap();
-        string_table.next().unwrap();
-        string_table.next().unwrap();
-        result.ripper = String::from_utf8(string_table.next().unwrap().to_vec()).unwrap();
-        string_table.next().unwrap();
+        result.title = String::from_utf8(string_table.next().ok_or("Missing title!".to_string())?.to_vec())
+            .map_err(|e| e.to_string())?;
+
+        string_table.next()
+            .ok_or("Missing original title!".to_string())?;
+
+        result.game = String::from_utf8(string_table.next().ok_or("Missing game name!".to_string())?.to_vec())
+            .map_err(|e| e.to_string())?;
+
+        string_table.next()
+            .ok_or("Missing original game name!".to_string())?;
+
+        result.system = String::from_utf8(string_table.next().ok_or("Missing system name!".to_string())?.to_vec())
+            .map_err(|e| e.to_string())?;
+
+        string_table.next()
+            .ok_or("Missing original system name!".to_string())?;
+
+        result.author = String::from_utf8(string_table.next().ok_or("Missing author name!".to_string())?.to_vec())
+            .map_err(|e| e.to_string())?;
+
+        string_table.next()
+            .ok_or("Missing original author name!".to_string())?;
+
+        string_table.next()
+            .ok_or("Missing release date!".to_string())?;
+
+        result.ripper = String::from_utf8(string_table.next().ok_or("Missing ripper name!".to_string())?.to_vec())
+            .map_err(|e| e.to_string())?;
+
+        string_table.next()
+            .ok_or("Missing notes!".to_string())?;
 
         Ok(result)
     }
