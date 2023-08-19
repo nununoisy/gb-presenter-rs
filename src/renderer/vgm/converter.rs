@@ -25,8 +25,6 @@ fn vgm_to_engine_format(vgm: &mut Vgm) -> Result<PegmodeEngineData, String> {
             current_bank.clear();
         }
 
-        println!("{:?}", command);
-
         match command {
             VgmIterItem::HitLoopOffset => {
                 let loop_bank = result.banks.len() + 1;
