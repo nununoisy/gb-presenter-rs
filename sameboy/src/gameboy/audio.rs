@@ -198,7 +198,7 @@ fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
     // Purely for visualizer aesthetic
     // let frequency = (262144.0 / period).sqrt() / 4.0;
     // let frequency = 17.351597831287 + (period.log2() / 2.0);
-    let lfsr_index = NOISE_PERIODS.iter().position(|p| *p == period).unwrap();
+    let lfsr_index = NOISE_PERIODS.iter().rev().position(|p| *p == period).unwrap();
     let frequency = C_0 * (2.0_f64).powf(lfsr_index as f64 / 69.0);
 
     // Timbre is just LFSR short mode
