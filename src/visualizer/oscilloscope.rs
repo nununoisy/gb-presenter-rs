@@ -4,6 +4,8 @@ use raqote::{AntialiasMode, BlendMode, Color, DrawOptions, DrawTarget, Gradient,
 use sameboy::ApuChannel;
 use super::{Visualizer, ChannelState};
 
+const DIVIDER_WIDTH: u32 = 5;
+
 impl Visualizer {
     fn oscilloscope_window(&self, channel: ApuChannel, window_size: usize) -> (Vec<f32>, ChannelState) {
         let buf = match channel {
@@ -91,7 +93,7 @@ impl Visualizer {
             Gradient {
                 stops: vec![
                     GradientStop { position: 0.0, color: bg_color },
-                    GradientStop { position: 0.5, color: Color::new(0x20, 0, 0, 0)},
+                    GradientStop { position: 0.5, color: Color::new(0x20, 0, 0, 0) },
                     GradientStop { position: 1.0, color: bg_color }
                 ],
             },
@@ -121,8 +123,8 @@ impl Visualizer {
 
         let padding = (self.font.tile_h() as f32) / 2.0;
         let name_width = (self.font.tile_w() * settings.name().len()) as f32;
-        self.font.draw_text(&mut self.canvas, "LR35902", x + padding, y + padding, 0.2);
-        self.font.draw_text(&mut self.canvas, &settings.name(), x + w - name_width - padding, y + h - 3.0 * padding, 0.2);
+        self.font.draw_text(&mut self.canvas, "LR35902", x + padding + (DIVIDER_WIDTH / 2) as f32, y + padding, 0.2);
+        self.font.draw_text(&mut self.canvas, &settings.name(), x + w - name_width - padding - DIVIDER_WIDTH as f32, y + h - 3.0 * padding, 0.2);
 
         let glow_color = Color::new(0x40, color.r(), color.g(), color.b());
         let glow_source = Source::Solid(SolidSource::from(glow_color));
@@ -154,6 +156,23 @@ impl Visualizer {
             },
             &DrawOptions::default()
         );
+
+        for dx in 0..DIVIDER_WIDTH {
+            let gradient_index = (255 * (DIVIDER_WIDTH - dx)) / DIVIDER_WIDTH;
+            let gradient_color = Color::new(((gradient_index * gradient_index) / 255) as u8, 0, 0, 0);
+            let gradient_source = Source::Solid(SolidSource::from(gradient_color));
+
+            self.canvas.fill_rect(
+                x - 1.0 + dx as f32, y, 1.0, h,
+                &gradient_source,
+                &DrawOptions::new()
+            );
+            self.canvas.fill_rect(
+                x + w - 1.0 - dx as f32, y, 1.0, h,
+                &gradient_source,
+                &DrawOptions::new()
+            );
+        }
     }
 
     pub fn draw_oscilloscopes(&mut self) {
