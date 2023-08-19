@@ -76,7 +76,7 @@ impl Visualizer {
         let mut pb = PathBuilder::new();
         for (i, s) in window.iter().enumerate() {
             let px = (i as f32) / 2.0;
-            let py = (10.0 - *s) * h / 20.0;
+            let py = (15.0 - *s) * h / 30.0;
 
             if i == 0 {
                 pb.move_to(x + px, y + py);
