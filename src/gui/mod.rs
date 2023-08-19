@@ -442,15 +442,18 @@ pub fn run() {
                 None => return
             };
 
-            if output_path.ends_with(".mov") && confirm_prores_export_dialog() {
+            if output_path.ends_with(".mov") {
                 // Fairly close approximation of the Game Boy's frame rate with a timebase denominator <100000.
                 // Required to avoid "codec timebase is very high" warning from the QuickTime encoder.
                 options.borrow_mut().video_options.video_time_base = (1_097, 65_536).into();
-                // -c:v prores_ks -profile:v 4 -bits_per_mb 1000 -pix_fmt yuva444p10le
-                options.borrow_mut().video_options.video_codec = "prores_ks".to_string();
-                options.borrow_mut().video_options.video_codec_params.insert("profile".to_string(), "4".to_string());
-                options.borrow_mut().video_options.video_codec_params.insert("bits_per_mb".to_string(), "1000".to_string());
-                options.borrow_mut().video_options.pixel_format_out = "yuva444p10le".to_string();
+
+                if confirm_prores_export_dialog() {
+                    // -c:v prores_ks -profile:v 4 -bits_per_mb 1000 -pix_fmt yuva444p10le
+                    options.borrow_mut().video_options.video_codec = "prores_ks".to_string();
+                    options.borrow_mut().video_options.video_codec_params.insert("profile".to_string(), "4".to_string());
+                    options.borrow_mut().video_options.video_codec_params.insert("bits_per_mb".to_string(), "1000".to_string());
+                    options.borrow_mut().video_options.pixel_format_out = "yuva444p10le".to_string();
+                }
             }
 
             options.borrow_mut().video_options.output_path = output_path;
