@@ -20,6 +20,13 @@ fn model_value_parser(s: &str) -> Result<Model, String> {
     }
 }
 
+fn codec_option_value_parser(s: &str) -> Result<(String, String), String> {
+    let (key, value) = s.split_once('=')
+        .ok_or("Invalid option specification (must be of the form 'option=value').".to_string())?;
+
+    Ok((key.to_string(), value.to_string()))
+}
+
 fn get_renderer_options() -> RendererOptions {
     let matches = Command::new("GBPresenter")
         .arg(arg!(-c --"video-codec" <CODEC> "Set the output video codec")
@@ -38,10 +45,10 @@ fn get_renderer_options() -> RendererOptions {
             .required(false)
             .value_parser(value_parser!(i32))
             .default_value("44100"))
-        .arg(arg!(-T --"track" <TRACK> "Select the 0-indexed track to play")
+        .arg(arg!(-T --"track" <TRACK> "Select the 1-indexed track to play")
             .required(false)
             .value_parser(value_parser!(u8))
-            .default_value("0"))
+            .default_value("1"))
         .arg(arg!(-s --"stop-at" <CONDITION> "Set the stop condition")
             .required(false)
             .value_parser(value_parser!(StopCondition))
@@ -58,6 +65,14 @@ fn get_renderer_options() -> RendererOptions {
             .required(false)
             .value_parser(value_parser!(u32))
             .default_value("1080"))
+        .arg(arg!(-o --"video-option" <OPTION> "Pass an option to the video codec (option=value)")
+            .required(false)
+            .value_parser(codec_option_value_parser)
+            .action(ArgAction::Append))
+        .arg(arg!(-O --"audio-option" <OPTION> "Pass an option to the audio codec (option=value)")
+            .required(false)
+            .value_parser(codec_option_value_parser)
+            .action(ArgAction::Append))
         .arg(arg!(-m --"model" <MODEL> "GameBoy model to emulate")
             .required(false)
             .value_parser(model_value_parser)
@@ -73,6 +88,9 @@ fn get_renderer_options() -> RendererOptions {
             .num_args(2)
             .value_names(["ROM", "SAV"])
             .value_parser(value_parser!(PathBuf)))
+        .arg(arg!(-v --"vgm" <VGM> "VGM file to render")
+            .required(false)
+            .value_parser(value_parser!(PathBuf)))
         .arg(arg!(<output> "Output video file")
             .value_parser(value_parser!(PathBuf))
             .required(true))
@@ -86,8 +104,10 @@ fn get_renderer_options() -> RendererOptions {
         options.input = RenderInput::LSDj(rom_path, sav_path);
     } else if let Some(gbs_file) = matches.get_one::<PathBuf>("gbs") {
         options.input = RenderInput::GBS(gbs_file.to_str().unwrap().to_string());
+    } else if let Some(vgm_file) = matches.get_one::<PathBuf>("vgm") {
+        options.input = RenderInput::VGM(vgm_file.to_str().unwrap().to_string());
     } else {
-        panic!("One of --gbs/--lsdj is required");
+        panic!("One of --gbs/--lsdj/--vgm is required");
     }
 
     options.video_options.output_path = matches.get_one::<PathBuf>("output").cloned().unwrap().to_str().unwrap().to_string();
@@ -96,11 +116,21 @@ fn get_renderer_options() -> RendererOptions {
     options.video_options.pixel_format_out = matches.get_one::<String>("pixel-format").cloned().unwrap();
     options.video_options.sample_format_out = matches.get_one::<String>("sample-format").cloned().unwrap();
 
+    if options.video_options.output_path.ends_with(".mov") {
+        // Fairly close approximation of the Game Boy's frame rate with a timebase denominator <100000.
+        // Required to avoid "codec timebase is very high" warning from the QuickTime encoder.
+        options.video_options.video_time_base = (1_097, 65_536).into();
+    }
+
     let sample_rate = matches.get_one::<i32>("sample-rate").cloned().unwrap();
     options.video_options.sample_rate = sample_rate;
     options.video_options.audio_time_base = (1, sample_rate).into();
 
-    options.track_index = matches.get_one::<u8>("track").cloned().unwrap();
+    let track = matches.get_one::<u8>("track").cloned().unwrap();
+    if track == 0 {
+        println!("Warning: tracks are now 1-indexed. Choosing track 1 instead.");
+    }
+    options.track_index = track.saturating_sub(1);
     options.stop_condition = matches.get_one::<StopCondition>("stop-at").cloned().unwrap();
     options.fadeout_length = matches.get_one::<u64>("stop-fadeout").cloned().unwrap();
 
@@ -110,7 +140,16 @@ fn get_renderer_options() -> RendererOptions {
 
     options.model = matches.get_one::<Model>("model").cloned().unwrap();
 
-    // TODO: codec options
+    if let Some(video_options) = matches.get_many::<(String, String)>("video-option") {
+        for (k, v) in video_options.cloned() {
+            options.video_options.video_codec_params.insert(k, v);
+        }
+    }
+    if let Some(audio_options) = matches.get_many::<(String, String)>("audio-option") {
+        for (k, v) in audio_options.cloned() {
+            options.video_options.audio_codec_params.insert(k, v);
+        }
+    }
 
     options
 }
