@@ -317,7 +317,8 @@ impl Renderer {
         match self.expected_duration {
             Some(expected_duration) => {
                 let remaining_frames = expected_duration - self.current_frame() as usize;
-                let remaining_secs = remaining_frames as f64 / 60.0;
+                let average_fps = u32::max(self.average_fps(), 1) as f64;
+                let remaining_secs = remaining_frames as f64 / average_fps;
                 Some(Duration::from_secs_f64(self.elapsed().as_secs_f64() + remaining_secs))
             },
             None => None
