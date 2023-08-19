@@ -97,12 +97,16 @@ gb-presenter-rs --lsdj lsdj.gb songs.sav path/to/output.mp4
 ```
 or
 ```
-gb-presenter-rs --gbs songs.gbs path/to/output.mkv
+gb-presenter-rs --gbs songs.gbs --track 3 path/to/output.mkv
+```
+or
+```
+gb-presenter-rs --vgm song.vgm path/to/output.mov
 ```
 
 Additional options:
 - `-R [rate]`: set the sample rate of the audio (default: 44100)
-- `-T [track]`: select the GBS/LSDj track index (default: 0)
+- `-T [track]`: select the GBS/LSDj track index (default: 1)
 - `-s [condition]`: select the output duration (default: `time:300`):
     - `time:[seconds]`
     - `frames:[frames]`
@@ -110,6 +114,8 @@ Additional options:
 - `-S [fadeout]`: select the fadeout duration in frames (default: 180).
 - `--ow [width]`: select the output resolution width (default: 1920)
 - `--oh [height]`: select the output resolution height (default: 1080)
+- `-o [key=value]`: pass a video codec parameter to FFmpeg
+- `-O [key=value]`: pass an audio codec parameter to FFmpeg
 - `-h`: Additional help + options
     - Note: options not listed here are unstable and may cause crashes or
       other errors.
