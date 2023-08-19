@@ -1410,7 +1410,7 @@ dependencies = [
 
 [[package]]
 name = "gb-presenter-rs"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "clap",
  "encoding_rs",
