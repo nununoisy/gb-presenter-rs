@@ -78,9 +78,11 @@ fn metadata_string(s: &str) -> Vec<u8> {
 }
 
 pub fn vgm_to_gbs(vgm: &mut Vgm) -> Result<(Vec<u8>, PegmodeEngineData), String> {
-    let mut patch_rom = include_bytes!("patch_rom.gb").to_vec();
-
     let engine_data = vgm_to_engine_format(vgm)?;
+
+    let mut patch_rom = include_bytes!("patch_rom.gb").to_vec();
+    patch_rom.resize(patch_rom.len() + (engine_data.banks.len() + 1) * 0x4000, 0);
+
     for (i, bank) in engine_data.banks.iter().enumerate() {
         let bank_offset = 0x4000 * (i + 1);
         patch_rom[bank_offset..(bank_offset + bank.len())].copy_from_slice(&bank);
