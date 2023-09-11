@@ -13,7 +13,7 @@ use slint::{Color, Model as _};
 use sameboy::{ApuChannel, Model, Revision};
 use crate::gui::render_thread::{RenderThreadMessage, RenderThreadRequest};
 use crate::renderer::gbs::Gbs;
-use crate::renderer::{lsdj, vgm};
+use crate::renderer::{lsdj, m3u_searcher, vgm};
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
 use crate::video_builder::backgrounds::VideoBackground;
 use crate::visualizer::channel_settings::{ChannelSettingsManager, ChannelSettings};
@@ -175,6 +175,7 @@ pub fn run() {
     }
 
     let mut options = Rc::new(RefCell::new(RendererOptions::default()));
+    let mut track_durations: Rc<RefCell<HashMap<u8, Duration>>> = Rc::new(RefCell::new(HashMap::new()));
 
     let (rt_handle, rt_tx) = {
         let main_window_weak = main_window.as_weak();
@@ -258,9 +259,12 @@ pub fn run() {
     {
         let main_window_weak = main_window.as_weak();
         let options = options.clone();
+        let track_durations = track_durations.clone();
         main_window.on_browse_for_rom(move || {
             match browse_for_rom_dialog() {
                 Some(path) => {
+                    track_durations.borrow_mut().clear();
+
                     main_window_weak.unwrap().set_rom_path(path.clone().into());
                     main_window_weak.unwrap().set_sav_path("".into());
                     main_window_weak.unwrap().set_input_type(InputType::None);
@@ -292,8 +296,25 @@ pub fn run() {
                             gbs.title().unwrap(), gbs.artist().unwrap(), gbs.copyright().unwrap(),
                             gbs.song_count(), gbs.starting_song()
                         );
+                        let m3u_titles = match m3u_searcher::search(path.clone()) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                println!("M3U search failed: {}", e);
+                                HashMap::default()
+                            }
+                        };
                         let track_titles: Vec<String> = (0..gbs.song_count())
-                            .map(|i| format!("Track {}", i + 1))
+                            .map(|i| {
+                                match m3u_titles.get(&i) {
+                                    Some((title, duration)) => {
+                                        if duration.is_some() {
+                                            track_durations.borrow_mut().insert(i, duration.unwrap().clone());
+                                        }
+                                        format!("Track {}: {}", i + 1, title.clone())
+                                    },
+                                    None => format!("Track {}", i + 1)
+                                }
+                            })
                             .collect();
                         main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
 

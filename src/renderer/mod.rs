@@ -2,6 +2,7 @@ pub mod render_options;
 pub mod lsdj;
 pub mod gbs;
 pub mod vgm;
+pub mod m3u_searcher;
 
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
