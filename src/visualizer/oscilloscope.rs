@@ -175,10 +175,22 @@ impl Visualizer {
         }
     }
 
-    pub fn draw_oscilloscopes(&mut self) {
-        self.draw_oscilloscope_view(ApuChannel::Pulse1, 0.0, 0.0, 240.0, 48.0);
-        self.draw_oscilloscope_view(ApuChannel::Pulse2, 240.0, 0.0, 240.0, 48.0);
-        self.draw_oscilloscope_view(ApuChannel::Wave, 480.0, 0.0, 240.0, 48.0);
-        self.draw_oscilloscope_view(ApuChannel::Noise, 720.0, 0.0, 240.0, 48.0);
+    pub fn draw_oscilloscopes(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        if self.is_vertical_layout() {
+            let scope_w = w / 2.0;
+            let scope_h = h / 2.0;
+
+            self.draw_oscilloscope_view(ApuChannel::Pulse1, x, y, scope_w, scope_h);
+            self.draw_oscilloscope_view(ApuChannel::Pulse2, x + scope_w, y, scope_w, scope_h);
+            self.draw_oscilloscope_view(ApuChannel::Wave, x, y + scope_h, scope_w, scope_h);
+            self.draw_oscilloscope_view(ApuChannel::Noise, x + scope_w, y + scope_h, scope_w, scope_h);
+        } else {
+            let scope_w = w / 4.0;
+
+            self.draw_oscilloscope_view(ApuChannel::Pulse1, x, y, scope_w, h);
+            self.draw_oscilloscope_view(ApuChannel::Pulse2, x + scope_w, y, scope_w, h);
+            self.draw_oscilloscope_view(ApuChannel::Wave, x + (2.0 * scope_w), y, scope_w, h);
+            self.draw_oscilloscope_view(ApuChannel::Noise, x + (3.0 * scope_w), y, scope_w, h);
+        }
     }
 }

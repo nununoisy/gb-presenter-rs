@@ -110,3 +110,18 @@ impl Default for RendererOptions {
         }
     }
 }
+
+impl RendererOptions {
+    // TODO: this works, but there are issues with the FFmpeg library that make it hard to use.
+    pub fn set_resolution_smart(&mut self, w: u32, h: u32) {
+        self.video_options.resolution_out = (w, h);
+
+        self.video_options.resolution_in = if w >= h {
+            (w, ((w as f32) * (h as f32) / 960.0) as u32)
+        } else {
+            (((h as f32) * (w as f32) / 960.0) as u32, h)
+        };
+
+        println!("{}x{}", self.video_options.resolution_in.0, self.video_options.resolution_in.1);
+    }
+}

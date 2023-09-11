@@ -53,7 +53,11 @@ pub struct Renderer {
 impl Renderer {
     pub fn new(options: RendererOptions) -> Result<Self, String> {
         let gb = Gameboy::new(options.clone().model);
-        let viz = Rc::new(RefCell::new(Visualizer::new()));
+        let viz = Rc::new(RefCell::new(Visualizer::new(
+            options.video_options.resolution_in.0 as i32,
+            options.video_options.resolution_in.1 as i32,
+            options.video_options.sample_rate as u32
+        )));
         let vb = VideoBuilder::new(options.video_options.clone())?;
 
         Ok(Self {
@@ -155,9 +159,7 @@ impl Renderer {
     pub fn step(&mut self) -> Result<bool, String> {
         self.gb.run_frame();
 
-        self.viz.borrow_mut().clear();
-        self.viz.borrow_mut().draw_oscilloscopes();
-        self.viz.borrow_mut().draw_piano_roll();
+        self.viz.borrow_mut().draw();
 
         self.vb.push_video_data(&self.viz.borrow().get_canvas_buffer())?;
         if let Some(audio) = self.gb.get_audio_samples(Some(self.vb.audio_frame_size())) {

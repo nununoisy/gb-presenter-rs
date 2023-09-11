@@ -1,6 +1,7 @@
 use raqote::{AntialiasMode, BlendMode, Color, DrawOptions, PathBuilder, SolidSource, Source};
 use ringbuf::Rb;
 use sameboy::ApuChannel;
+use crate::visualizer::ChannelState;
 use super::Visualizer;
 
 const KEY_COUNT: usize = 108;
@@ -157,15 +158,21 @@ impl Visualizer {
         };
         let n = 12.0 * (frequency / C_0).log2() as f32;
         let octave = (n / 12.0).floor();
-        let note = n % 12.0;
+        let note = n.rem_euclid(12.0);
+
+        let lower_alpha_multiplier = if note.ceil() != note.floor() {
+            note.ceil() - note
+        } else {
+            1.0
+        };
 
         let lower_note = note.floor();
         let lower_octave = octave;
         let lower_key = PIANO_KEYS[lower_note as usize].clone();
-        let lower_alpha = (255.0 * volume_alpha * (note.ceil() - note)) as u8;
+        let lower_alpha = (255.0 * volume_alpha * lower_alpha_multiplier) as u8;
         let lower_color = Color::new(lower_alpha, color.r(), color.g(), color.b());
 
-        let upper_note = note.ceil() % 12.0;
+        let upper_note = note.ceil().rem_euclid(12.0);
         let upper_octave = octave + (note.ceil() / 12.0).floor();
         let upper_key = PIANO_KEYS[upper_note as usize].clone();
         let upper_alpha = (255.0 * volume_alpha * (note - note.floor())) as u8;
@@ -181,17 +188,20 @@ impl Visualizer {
         self.draw_piano_key(upper_key, upper_x, y, key_w, h, Some(upper_color));
     }
 
-    fn store_channel_slice(&mut self, channel: ApuChannel) {
-        let last_state = match channel {
-            ApuChannel::Pulse1 => self.pulse1_states.iter().last(),
-            ApuChannel::Pulse2 => self.pulse2_states.iter().last(),
-            ApuChannel::Wave => self.wave_states.iter().last(),
-            ApuChannel::Noise => self.noise_states.iter().last()
+    fn get_slices_for_this_frame(&self, channel: ApuChannel) -> Vec<ChannelState> {
+        let slice_iter = match channel {
+            ApuChannel::Pulse1 => self.pulse1_states.iter(),
+            ApuChannel::Pulse2 => self.pulse2_states.iter(),
+            ApuChannel::Wave => self.wave_states.iter(),
+            ApuChannel::Noise => self.noise_states.iter()
         };
-        if last_state.is_none() {
-            return;
-        }
-        self.state_slices.push_overwrite(last_state.unwrap().clone());
+
+        slice_iter
+            .rev()
+            .step_by(self.sample_rate as usize / (60 * 4))
+            .take(4)
+            .cloned()
+            .collect()
     }
 
     fn draw_channel_slices(&mut self, x: f32, y: f32, w: f32, h: f32, key_w: f32) {
@@ -215,7 +225,7 @@ impl Visualizer {
             };
             let n = 12.0 * (frequency / C_0).log2() as f32;
             let octave = (n / 12.0).floor();
-            let note = n % 12.0;
+            let note = n.rem_euclid(12.0);
 
             let slice_w = state.volume as f32;
             let slice_x = keys_x + (key_w * (note + 12.0 * octave)) - (slice_w / 2.0);
@@ -240,21 +250,28 @@ impl Visualizer {
         }
     }
 
-    pub fn draw_piano_roll(&mut self) {
-        self.draw_piano_keys(0.0, 48.0, 960.0, KEY_HEIGHT, KEY_THICKNESS);
-        self.draw_channel_key_spot(ApuChannel::Noise, 0.0, 48.0, 960.0, KEY_HEIGHT, KEY_THICKNESS);
-        self.draw_channel_key_spot(ApuChannel::Wave, 0.0, 48.0, 960.0, KEY_HEIGHT, KEY_THICKNESS);
-        self.draw_channel_key_spot(ApuChannel::Pulse2, 0.0, 48.0, 960.0, KEY_HEIGHT, KEY_THICKNESS);
-        self.draw_channel_key_spot(ApuChannel::Pulse1, 0.0, 48.0, 960.0, KEY_HEIGHT, KEY_THICKNESS);
+    pub fn draw_piano_roll(&mut self, x: f32, y: f32, w: f32, h: f32) {
+        self.draw_piano_keys(x, y, w, KEY_HEIGHT, KEY_THICKNESS);
+        self.draw_channel_key_spot(ApuChannel::Noise, x, y, w, KEY_HEIGHT, KEY_THICKNESS);
+        self.draw_channel_key_spot(ApuChannel::Wave, x, y, w, KEY_HEIGHT, KEY_THICKNESS);
+        self.draw_channel_key_spot(ApuChannel::Pulse2, x, y, w, KEY_HEIGHT, KEY_THICKNESS);
+        self.draw_channel_key_spot(ApuChannel::Pulse1, x, y, w, KEY_HEIGHT, KEY_THICKNESS);
 
-        let slices_y = 48.0 + KEY_HEIGHT;
-        let slices_h = 540.0 - slices_y;
-        for _ in 0..4 {
-            self.store_channel_slice(ApuChannel::Noise);
-            self.store_channel_slice(ApuChannel::Wave);
-            self.store_channel_slice(ApuChannel::Pulse2);
-            self.store_channel_slice(ApuChannel::Pulse1);
-        }
-        self.draw_channel_slices(0.0, slices_y, 960.0, slices_h, KEY_THICKNESS);
+        let slices_y = y + KEY_HEIGHT;
+        let slices_h = h - KEY_HEIGHT;
+
+        let p1_slices = self.get_slices_for_this_frame(ApuChannel::Pulse1);
+        let p2_slices = self.get_slices_for_this_frame(ApuChannel::Pulse2);
+        let n_slices = self.get_slices_for_this_frame(ApuChannel::Noise);
+        let w_slices = self.get_slices_for_this_frame(ApuChannel::Wave);
+
+        (0..4)
+            .flat_map(|i| vec![p1_slices[i], p2_slices[i], n_slices[i], w_slices[i]])
+            .rev()
+            .for_each(|s| {
+                self.state_slices.push_overwrite(s);
+            });
+
+        self.draw_channel_slices(x, slices_y, w, slices_h, KEY_THICKNESS);
     }
 }

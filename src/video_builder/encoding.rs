@@ -32,7 +32,7 @@ fn fast_background_blit(fg: &mut frame::Video, bg: &frame::Video) {
 impl VideoBuilder {
     fn push_video_data_no_bg(&mut self, video: &[u8]) -> Result<(), String> {
         let mut input_frame = frame::Video::new(self.v_swc_ctx.input().format, self.v_swc_ctx.input().width, self.v_swc_ctx.input().height);
-        input_frame.data_mut(0).copy_from_slice(video);
+        input_frame.data_mut(0)[..video.len()].copy_from_slice(video);
 
         let mut resize_frame = frame::Video::new(self.v_swc_ctx.output().format, self.v_swc_ctx.output().width, self.v_swc_ctx.output().height);
         self.v_swc_ctx.run(&input_frame, &mut resize_frame).vb_unwrap()?;
@@ -47,7 +47,7 @@ impl VideoBuilder {
 
     fn push_video_data_bg(&mut self, video: &[u8]) -> Result<(), String> {
         let mut input_frame = frame::Video::new(self.v_sws_ctx.input().format, self.v_sws_ctx.input().width, self.v_sws_ctx.input().height);
-        input_frame.data_mut(0).copy_from_slice(video);
+        input_frame.data_mut(0)[..video.len()].copy_from_slice(video);
 
         let mut resize_frame = frame::Video::new(self.v_sws_ctx.output().format, self.v_sws_ctx.output().width, self.v_sws_ctx.output().height);
         self.v_sws_ctx.run(&input_frame, &mut resize_frame).vb_unwrap()?;
@@ -77,7 +77,7 @@ impl VideoBuilder {
 
         let mut input_frame = frame::Audio::new(self.a_swr_ctx.input().format, samples, self.a_swr_ctx.input().channel_layout);
         input_frame.set_rate(self.options.sample_rate as _);
-        input_frame.data_mut(0).copy_from_slice(audio);
+        input_frame.data_mut(0)[..audio.len()].copy_from_slice(audio);
 
         let mut output_frame = frame::Audio::new(self.a_swr_ctx.output().format, samples, self.a_swr_ctx.output().channel_layout);
         output_frame.set_rate(self.options.sample_rate as _);

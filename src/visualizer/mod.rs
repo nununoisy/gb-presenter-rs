@@ -23,6 +23,7 @@ pub struct ChannelState {
 }
 
 pub struct Visualizer {
+    sample_rate: u32,
     canvas: DrawTarget,
     settings: ChannelSettingsManager,
     pulse1_states: HeapRb<ChannelState>,
@@ -42,18 +43,19 @@ const FONT_IMAGE: &'static [u8] = include_bytes!("8x8_font.png");
 const FONT_CHAR_MAP: &'static str = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~";
 
 impl Visualizer {
-    pub fn new() -> Self {
+    pub fn new(width: i32, height: i32, sample_rate: u32) -> Self {
         Self {
-            canvas: DrawTarget::new(960, 540),
+            sample_rate,
+            canvas: DrawTarget::new(width, height),
             settings: ChannelSettingsManager::default(),
             pulse1_states: HeapRb::new(APU_STATE_BUF_SIZE),
-            pulse1_iir: HighPassIIR::new(44100.0, 300.0),
+            pulse1_iir: HighPassIIR::new(sample_rate as f32, 300.0),
             pulse2_states: HeapRb::new(APU_STATE_BUF_SIZE),
-            pulse2_iir: HighPassIIR::new(44100.0, 300.0),
+            pulse2_iir: HighPassIIR::new(sample_rate as f32, 300.0),
             wave_states: HeapRb::new(APU_STATE_BUF_SIZE),
-            wave_iir: HighPassIIR::new(44100.0, 300.0),
+            wave_iir: HighPassIIR::new(sample_rate as f32, 300.0),
             noise_states: HeapRb::new(APU_STATE_BUF_SIZE),
-            noise_iir: HighPassIIR::new(44100.0, 300.0),
+            noise_iir: HighPassIIR::new(sample_rate as f32, 300.0),
             state_slices: HeapRb::new(APU_STATE_BUF_SIZE),
             font: TileMap::new(FONT_IMAGE, 8, 8, FONT_CHAR_MAP).unwrap()
         }
@@ -68,12 +70,30 @@ impl Visualizer {
         self.canvas.clear(SolidSource::from_unpremultiplied_argb(0, 0, 0, 0));
     }
 
+    pub fn draw(&mut self) {
+        let mut scope_height: f32 = 48.0;
+        let w = self.canvas.width() as f32;
+        let h = self.canvas.height() as f32;
+
+        if self.is_vertical_layout() {
+            scope_height *= 2.0;
+        }
+
+        self.clear();
+        self.draw_oscilloscopes(0.0, 0.0, w, scope_height);
+        self.draw_piano_roll(0.0, scope_height, w, h - scope_height);
+    }
+
     pub fn settings_manager(&self) -> ChannelSettingsManager {
         self.settings.clone()
     }
 
     pub fn settings_manager_mut(&mut self) -> &mut ChannelSettingsManager {
         &mut self.settings
+    }
+
+    fn is_vertical_layout(&self) -> bool {
+        self.canvas.height() > self.canvas.width()
     }
 }
 
