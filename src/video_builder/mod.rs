@@ -164,9 +164,13 @@ impl VideoBuilder {
         context.set_max_b_frames(2);
         context.set_gop(12);
         context.set_time_base(options.video_time_base);
+
+        let mut flags = codec::Flags::empty();
         if global_header {
-            context.set_flags(codec::Flags::GLOBAL_HEADER);
+            flags.insert(codec::Flags::GLOBAL_HEADER);
         }
+        flags.insert(codec::Flags::CLOSED_GOP);  // Needed for Twitter uploads to function properly
+        context.set_flags(flags);
 
         ffmpeg_copy_codec_params(&mut stream, &context, &codec)?;
 
@@ -177,8 +181,8 @@ impl VideoBuilder {
         match codec.id() {
             codec::Id::H264 | codec::Id::H265 => {
                 context_options.set("preset", "veryfast");
-                context_options.set("crf", "16");
-                context_options.set("tune", "animation");
+                context_options.set("crf", "20");
+                context_options.set("tune", "film");
             },
             _ => ()
         };
