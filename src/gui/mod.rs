@@ -6,7 +6,7 @@ use std::path;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
-use indicatif::{FormattedDuration, HumanBytes};
+use indicatif::{FormattedDuration, HumanBytes, HumanDuration};
 use native_dialog::{FileDialog, MessageDialog, MessageType};
 use slint;
 use slint::{Color, Model as _};
@@ -181,19 +181,21 @@ pub fn run() {
         render_thread::render_thread(move |msg| {
             match msg {
                 RenderThreadMessage::Error(e) => {
+                    let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
-                        let error_message = format!("Render thread reported error: {}\
-                                                           \n\nThe program will now exit", e);
-                        display_error_dialog(&error_message);
-                        slint::quit_event_loop().unwrap();
+                        main_window_weak.unwrap().set_rendering(false);
+                        main_window_weak.unwrap().set_progress_error(true);
+                        main_window_weak.unwrap().set_progress_status(format!("Render error: {}", e).into());
                     }).unwrap();
                 }
                 RenderThreadMessage::RenderStarting => {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(true);
+                        main_window_weak.unwrap().set_progress_error(false);
                         main_window_weak.unwrap().set_progress(0.0);
-                        main_window_weak.unwrap().set_progress_bar_text("Setting up renderer...".into());
+                        main_window_weak.unwrap().set_progress_title("Setting up".into());
+                        main_window_weak.unwrap().set_progress_status("Preparing your song".into());
                     }).unwrap();
                 }
                 RenderThreadMessage::RenderProgress(p) => {
@@ -201,45 +203,35 @@ pub fn run() {
                     let current_video_duration = FormattedDuration(p.encoded_duration);
                     let expected_video_duration = match p.expected_duration {
                         Some(duration) => FormattedDuration(duration).to_string(),
-                        None => "?".to_string()
+                        None => "(unknown)".to_string()
                     };
-                    let elapsed_duration = FormattedDuration(p.elapsed_duration);
+                    // let elapsed_duration = FormattedDuration(p.elapsed_duration);
                     let eta_duration = match p.eta_duration {
-                        Some(duration) => FormattedDuration(duration).to_string(),
-                        None => "?".to_string()
-                    };
-                    let song_position = match p.song_position {
-                        Some(position) => position.to_string(),
-                        None => "?".to_string()
+                        Some(duration) => HumanDuration(duration.saturating_sub(p.elapsed_duration)).to_string(),
+                        None => "Unknown time".to_string()
                     };
 
-                    let status_lines = vec![
-                        format!(
-                            "FPS: {}, Encoded: {}/{}, Output size: {}",
-                            p.average_fps,
-                            current_video_duration, expected_video_duration,
-                            current_video_size
-                        ),
-                        format!(
-                            "Elapsed/ETA: {}/{}, Driver position: {}, Loop count: {}",
-                            elapsed_duration, eta_duration,
-                            song_position,
-                            p.loop_count
-                        )
-                    ];
-                    let (progress, progress_bar_text) = match p.expected_duration_frames {
+                    let (progress, progress_title) = match p.expected_duration_frames {
                         Some(exp_dur_frames) => {
                             let progress = p.frame as f64 / exp_dur_frames as f64;
-                            (progress, format!("{}%", (progress * 100.0) as usize))
+                            (progress, "Rendering".to_string())
                         },
-                        None => (0.0, "Waiting for loop detection...".to_string()),
+                        None => (0.0, "Initializing".to_string()),
                     };
+                    let progress_status = format!(
+                        "{}%, {} FPS, encoded {}/{} ({}), {} remaining",
+                        (progress * 100.0).round(),
+                        p.average_fps,
+                        current_video_duration, expected_video_duration,
+                        current_video_size,
+                        eta_duration
+                    );
 
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_progress(progress as f32);
-                        main_window_weak.unwrap().set_progress_bar_text(progress_bar_text.into());
-                        main_window_weak.unwrap().set_progress_lines(slint_string_arr(status_lines));
+                        main_window_weak.unwrap().set_progress_title(progress_title.into());
+                        main_window_weak.unwrap().set_progress_status(progress_status.into());
                     }).unwrap();
                 }
                 RenderThreadMessage::RenderComplete => {
@@ -247,21 +239,16 @@ pub fn run() {
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(false);
                         main_window_weak.unwrap().set_progress(1.0);
-                        main_window_weak.unwrap().set_progress_bar_text("100%".into());
-                        main_window_weak.unwrap().set_progress_lines(slint_string_arr(vec![
-                            "Done!".to_string()
-                        ]));
+                        main_window_weak.unwrap().set_progress_title("Idle".into());
+                        main_window_weak.unwrap().set_progress_status("Finished".into());
                     }).unwrap();
                 }
                 RenderThreadMessage::RenderCancelled => {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(false);
-                        main_window_weak.unwrap().set_progress(0.0);
-                        main_window_weak.unwrap().set_progress_bar_text("Idle".into());
-                        main_window_weak.unwrap().set_progress_lines(slint_string_arr(vec![
-                            "Render cancelled.".to_string()
-                        ]));
+                        main_window_weak.unwrap().set_progress_title("Idle".into());
+                        main_window_weak.unwrap().set_progress_status("Render cancelled".into());
                     }).unwrap();
                 }
             }

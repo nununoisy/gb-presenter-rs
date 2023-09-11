@@ -41,8 +41,9 @@ export component MainWindow inherits Window {
 
     in property <bool> rendering: false;
     in property <float> progress: 0.0;
-    in property <string> progress_bar_text: "Idle";
-    in property <[string]> progress_lines: [];
+    in property <string> progress-title: "Idle";
+    in property <string> progress-status: "";
+    in property <bool> progress-error: false;
 
     title: "GBPresenter";
     icon: @image-url("gb-presenter-icon.png");
@@ -259,50 +260,55 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        VerticalLayout {
-            alignment: center;
+
+        VerticalBox {
+            alignment: start;
             spacing: 8px;
-            min-height: 96px;
 
+            Text {
+                text: root.progress-title;
+                font-size: 16px;
+            }
             Rectangle {
-                preferred-height: 32px;
+                height: 6px;
 
-                Rectangle {
-                    border-width: 1px;
-                    border-radius: 2px;
-                    border-color: #313131;  // Palette.neutralLighter
-                    background: #313131;  // Palette.neutralLighter
-                }
+                border-width: 1px;
+                border-radius: 3px;
+                border-color: #313131;  // Palette.neutralLighter
+                background: #313131;  // Palette.neutralLighter
+
                 Rectangle {
                     x: 0;
                     y: 0;
                     height: parent.height;
-                    width: progress * parent.width;
+                    width: Math.max(0.0, Math.min(root.progress, 1.0)) * parent.width;
 
                     border-width: 1px;
-                    border-radius: 2px;
-                    border-color: #60cdff;  // Palette.themePrimary
-                    background: #60cdff;  // Palette.themePrimary
+                    border-radius: 3px;
+                    border-color: root.progress-error ? #bc2f32 : #60cdff;  // Palette.themePrimary
+                    background: root.progress-error ? #bc2f32 : #60cdff;  // Palette.themePrimary
 
                     animate width {
                         duration: 100ms;
                         easing: ease-in-out;
                     }
                 }
-                Text {
-                    x: 0;
-                    y: 0;
-                    height: parent.height;
-                    width: parent.width;
-
-                    text: progress_bar_text;
-                    vertical-alignment: center;
-                    horizontal-alignment: center;
-                }
             }
-            for line in progress_lines : Text {
-                text: line;
-                horizontal-alignment: center;
+            HorizontalLayout {
+                alignment: start;
+                spacing: 6px;
+
+                if root.progress-error: Image {
+                    colorize: #bc2f32;
+                    height: 16px;
+                    width: 16px;
+                    source: @image-url("circle-error.svg");
+                }
+                Text {
+                    text: root.progress-status;
+                    color: root.progress-error ? #bc2f32 : #ffffff;
+                    vertical-alignment: center;
+                }
             }
         }
     }
