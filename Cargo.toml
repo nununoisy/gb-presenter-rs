@@ -1,6 +1,6 @@
 [package]
 name = "gb-presenter-rs"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 build = "build.rs"
 
@@ -20,14 +20,15 @@ image = "0.24"
 ringbuf = "0.3.3"
 ffmpeg-next = "6.0"
 ffmpeg-sys-next = "6.0"
-slint = "1.1.1"
+slint = "1.2.0"
 native-dialog = "0.6.3"
 indicatif = "0.17.5"
 clap = "4.3.1"
 encoding_rs = "0.8.32"
+glob = "0.3.1"
 
 [build-dependencies]
-slint-build = "1.1.1"
+slint-build = "1.2.0"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
