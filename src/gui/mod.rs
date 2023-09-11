@@ -278,9 +278,9 @@ pub fn run() {
                     main_window_weak.unwrap().invoke_update_formatted_duration();
 
                     if let Ok(Some(lsdj_version)) = lsdj::get_lsdj_version(&path) {
-                        let major = i32::from_str(lsdj_version.split(".").next().unwrap()).unwrap();
-                        if major < 5 {
-                            display_error_dialog("Unsupported LSDj version! Please select a ROM that is v5.x or newer.");
+                        let major = i32::from_str(lsdj_version.split(".").next().unwrap_or_default()).unwrap_or(0);
+                        if major < 3 {
+                            display_error_dialog("Unsupported LSDj version! Please select a ROM that is v3.x or newer.");
                             return;
                         }
                         main_window_weak.unwrap().set_sav_path("".into());
