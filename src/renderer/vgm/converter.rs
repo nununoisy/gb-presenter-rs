@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use super::vgm::{Vgm, VgmIterItem};
 
 const WAIT_CMD: u8 = 0x80;
@@ -11,7 +12,7 @@ pub struct PegmodeEngineData {
     pub loop_data: Option<(usize, usize)>
 }
 
-fn vgm_to_engine_format(vgm: &mut Vgm) -> Result<PegmodeEngineData, String> {
+fn vgm_to_engine_format(vgm: &mut Vgm) -> Result<PegmodeEngineData> {
     let mut result = PegmodeEngineData {
         banks: Vec::new(),
         loop_data: None
@@ -53,7 +54,7 @@ fn vgm_to_engine_format(vgm: &mut Vgm) -> Result<PegmodeEngineData, String> {
                 current_bank.push(val);
             }
             VgmIterItem::InvalidCommand(cmd) => {
-                return Err(format!("Invalid/unsupported VGM command {:02X}!", cmd))
+                bail!("Invalid/unsupported VGM command {:02X}!", cmd);
             }
         }
     }
@@ -77,7 +78,7 @@ fn metadata_string(s: &str) -> Vec<u8> {
     buf
 }
 
-pub fn vgm_to_gbs(vgm: &mut Vgm) -> Result<(Vec<u8>, PegmodeEngineData), String> {
+pub fn vgm_to_gbs(vgm: &mut Vgm) -> Result<(Vec<u8>, PegmodeEngineData)> {
     let engine_data = vgm_to_engine_format(vgm)?;
 
     let mut patch_rom = include_bytes!("patch_rom.gb").to_vec();
@@ -106,7 +107,7 @@ pub fn vgm_to_gbs(vgm: &mut Vgm) -> Result<(Vec<u8>, PegmodeEngineData), String>
     gbs.push(0); // Timer TMA
     gbs.push(0); // Timer TAC
 
-    assert_eq!(gbs.len(), 0x10);
+    debug_assert_eq!(gbs.len(), 0x10);
 
     if let Some(gd3) = vgm.gd3_metadata() {
         gbs.extend(metadata_string(&gd3.title));
@@ -118,7 +119,7 @@ pub fn vgm_to_gbs(vgm: &mut Vgm) -> Result<(Vec<u8>, PegmodeEngineData), String>
         gbs.extend(metadata_string("<?>"));
     }
 
-    assert_eq!(gbs.len(), 0x70);
+    debug_assert_eq!(gbs.len(), 0x70);
 
     gbs.extend_from_slice(&patch_rom[0x3EF0..]);
     Ok((gbs, engine_data))

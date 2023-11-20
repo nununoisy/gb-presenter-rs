@@ -1,9 +1,20 @@
+use anyhow::{Result, anyhow};
 use std::ffi::{c_int, CString};
 use std::mem;
 use ffmpeg_next::{ChannelLayout, codec, Codec, Error, filter, format, StreamMut};
-use ffmpeg_sys_next::{AV_CODEC_CAP_VARIABLE_FRAME_SIZE, av_get_sample_fmt, AV_OPT_SEARCH_CHILDREN, av_opt_set_bin, avcodec_alloc_context3, avcodec_parameters_from_context, avcodec_parameters_to_context, AVSampleFormat};
+use ffmpeg_sys_next::{AV_CODEC_CAP_VARIABLE_FRAME_SIZE, av_get_sample_fmt, AV_OPT_SEARCH_CHILDREN, av_opt_set_bin, avcodec_alloc_context3, avcodec_parameters_from_context, avcodec_parameters_to_context, AVSampleFormat, av_version_info};
 
-pub fn ffmpeg_create_context(codec: Codec, parameters: codec::Parameters) -> Result<codec::Context, String> {
+pub fn ffmpeg_version() -> &'static str {
+    // ffmpeg-next does not provide a way to get the FFmpeg version number. It does provide the
+    // libav version number, but that follows a wildly different scheme and isn't very helpful.
+    // Safety: The return value of av_version_info() is guaranteed by the API to be a valid C
+    //         string with a static lifetime.
+    unsafe {
+        std::ffi::CStr::from_ptr(av_version_info()).to_str().unwrap()
+    }
+}
+
+pub fn ffmpeg_create_context(codec: Codec, parameters: codec::Parameters) -> Result<codec::Context> {
     // ffmpeg-next does not provide a way to pass a codec to avcodec_alloc_context3, which
     // is necessary for initializing certain contexts (e.g. mp4/libx264).
     // Safety: The return value of avcodec_alloc_context3() is checked to ensure that the allocation
@@ -14,18 +25,18 @@ pub fn ffmpeg_create_context(codec: Codec, parameters: codec::Parameters) -> Res
     unsafe {
         let context = avcodec_alloc_context3(codec.as_ptr());
         if context.is_null() {
-            return Err("FFMPEG error: avcodec_alloc_context3() failed".to_string());
+            return Err(anyhow!("FFMPEG error: avcodec_alloc_context3() failed"));
         }
 
         let mut context = codec::Context::wrap(context, None);
         match avcodec_parameters_to_context(context.as_mut_ptr(), parameters.as_ptr()) {
             0 => Ok(context),
-            e => Err(Error::from(e).to_string())
+            e => Err(anyhow!(Error::from(e)))
         }
     }
 }
 
-pub fn ffmpeg_copy_context_params(stream: &mut StreamMut, context: &codec::Context) -> Result<(), String> {
+pub fn ffmpeg_copy_context_params(stream: &mut StreamMut, context: &codec::Context) -> Result<()> {
     // This context copy is required to fully initialize some codecs (e.g. AAC). ffmpeg-next does not
     // provide a safe abstraction so it must be done here.
     // Safety: The value of avcodec_parameters_from_context is checked to ensure errors are handled.
@@ -34,12 +45,12 @@ pub fn ffmpeg_copy_context_params(stream: &mut StreamMut, context: &codec::Conte
     unsafe {
         match avcodec_parameters_from_context((*stream.as_mut_ptr()).codecpar, context.as_ptr()) {
             0 => Ok(()),
-            e => Err(Error::from(e).to_string())
+            e => Err(anyhow!(Error::from(e)))
         }
     }
 }
 
-pub fn ffmpeg_copy_codec_params(stream: &mut StreamMut, context: &codec::Context, codec: &Codec) -> Result<(), String> {
+pub fn ffmpeg_copy_codec_params(stream: &mut StreamMut, context: &codec::Context, codec: &Codec) -> Result<()> {
     // This augmented context copy is required to initialize some codecs. ffmpeg-next does not
     // provide a safe abstraction so it must be done here.
     // Safety: All mutable pointer dereferences are done strictly on initialized memory since they
@@ -62,13 +73,15 @@ pub fn ffmpeg_sample_format_from_string(value: &str) -> format::Sample {
     }
 }
 
-pub fn ffmpeg_set_audio_stream_frame_size(stream: &mut StreamMut, variable_frame_size: usize) -> usize {
-    unsafe {
-        let frame_size = (*(*stream.as_ptr()).codecpar).frame_size as usize;
-        if frame_size == 0 || (frame_size & AV_CODEC_CAP_VARIABLE_FRAME_SIZE as usize) != 0 {
-            (*(*stream.as_mut_ptr()).codecpar).frame_size = variable_frame_size as _;
-            return variable_frame_size;
-        }
+pub fn ffmpeg_get_audio_context_frame_size(context: &codec::Context, variable_frame_size: usize) -> usize {
+    let frame_size = unsafe { (*context.as_ptr()).frame_size as usize };
+    let ctx_codec = context.codec().unwrap();
+    debug_assert!(ctx_codec.is_audio());
+    debug_assert!(ctx_codec.is_encoder());
+
+    if ctx_codec.capabilities().contains(codec::Capabilities::VARIABLE_FRAME_SIZE) || frame_size == 0 {
+        variable_frame_size
+    } else {
         frame_size
     }
 }

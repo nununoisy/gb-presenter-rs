@@ -1,3 +1,4 @@
+use anyhow::{Error, anyhow};
 use std::thread;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -24,9 +25,8 @@ pub struct RenderProgressInfo {
     pub loop_count: u64
 }
 
-#[derive(Clone)]
 pub enum RenderThreadMessage {
-    Error(String),
+    Error(Error),
     RenderStarting,
     RenderProgress(RenderProgressInfo),
     RenderComplete,
@@ -57,7 +57,7 @@ pub fn render_thread<F>(cb: F) -> (thread::JoinHandle<()>, mpsc::Sender<RenderTh
             let options = match rx.recv().unwrap() {
                 RenderThreadRequest::StartRender(o) => o,
                 RenderThreadRequest::CancelRender => {
-                    cb(RenderThreadMessage::Error("No active render to cancel.".to_string()));
+                    cb(RenderThreadMessage::Error(anyhow!("No active render to cancel.")));
                     continue;
                 }
                 RenderThreadRequest::Terminate => break 'main
@@ -74,7 +74,7 @@ pub fn render_thread<F>(cb: F) -> (thread::JoinHandle<()>, mpsc::Sender<RenderTh
             'render: loop {
                 match rx.try_recv() {
                     Ok(RenderThreadRequest::StartRender(_)) => {
-                        cb(RenderThreadMessage::Error("No active render to cancel.".to_string()))
+                        cb(RenderThreadMessage::Error(anyhow!("No active render to cancel.")));
                     },
                     Ok(RenderThreadRequest::CancelRender) => {
                         cb(RenderThreadMessage::RenderCancelled);

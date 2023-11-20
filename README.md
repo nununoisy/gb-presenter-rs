@@ -23,7 +23,8 @@ and feeds it to FFmpeg to be encoded as a video.
 
 - Supports GBS files, VGM files, and LSDj ROM+SAV.
     - VGM support is made possible by [Pegmode's GBS driver][pegmode-driver].
-    - Support for additional formats (LSDSNG, GBTPlayer) is planned.
+    - 2x LSDj tracks are also supported.
+    - Support for additional formats (LSDSNG, LSDPRJ, GBTPlayer) is planned.
 - Built on SameBoy for extremely accurate sound emulation.
     - It usually sounds just as good as a recording of a DMG with a ProSound mod.
 - Outputs a video file:
@@ -37,7 +38,7 @@ and feeds it to FFmpeg to be encoded as a video.
     - Outputs the recommended format for YouTube, Twitter, and Discord (w/ Nitro).
     - Typical exports (1080p, up to 5 minutes) are usually below 100MB.
 - Loop detection for LSDj songs.
-    - Supported on LSDj 5.x and up.
+    - Supported on LSDj 3.x and up.
     - Support for `HFF` detection is planned.
     - Support for loop detection for tracker-exported GBS files is planned.
 - Loop detection for VGM files is supported.
@@ -51,6 +52,7 @@ and run the executable, and you're all set.
 - FFmpeg + development libraries
 - Qt6 development packages
 - [a proper SameBoy build environment](sameboy-sys/README.md)
+- Either Zenity or KDialog, if you plan to use the GUI frontend
 
 Clone the repo with submodules (`git clone --recursive`), `cd` in, and run
 `cargo build --release` to build.
@@ -103,10 +105,16 @@ or
 ```
 gb-presenter-rs --vgm song.vgm path/to/output.mov
 ```
+or
+```
+gb-presenter-rs --2xlsdj lsdj.gb songs.sav lsdj2x.gb songs2x.sav --track 1 --track 2 path/to/output.mp4
+```
 
 Additional options:
 - `-R [rate]`: set the sample rate of the audio (default: 44100)
-- `-T [track]`: select the GBS/LSDj track index (default: 1)
+- `-T [track]`: select the GBS/LSDj track index (default: 1). If specified
+                a second time, it sets the track index for the secondary
+                console in a 2x LSDj track.
 - `-s [condition]`: select the output duration (default: `time:300`):
     - `time:[seconds]`
     - `frames:[frames]`

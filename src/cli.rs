@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use indicatif::{FormattedDuration, HumanBytes, ProgressBar, ProgressStyle};
 use std::fmt::Write;
 use sameboy::{Model, Revision};
-use crate::renderer::{Renderer, render_options::{RendererOptions, RenderInput, StopCondition}};
+use crate::renderer::{Renderer, render_options::{RendererOptions, RenderInput, StopCondition}, vgm};
 
 fn model_value_parser(s: &str) -> Result<Model, String> {
     match s.replace("-", "").to_lowercase().as_str() {
@@ -48,7 +48,8 @@ fn get_renderer_options() -> RendererOptions {
         .arg(arg!(-T --"track" <TRACK> "Select the 1-indexed track to play")
             .required(false)
             .value_parser(value_parser!(u8))
-            .default_value("1"))
+            .default_value("1")
+            .action(ArgAction::Append))
         .arg(arg!(-s --"stop-at" <CONDITION> "Set the stop condition")
             .required(false)
             .value_parser(value_parser!(StopCondition))
@@ -76,7 +77,7 @@ fn get_renderer_options() -> RendererOptions {
         .arg(arg!(-m --"model" <MODEL> "GameBoy model to emulate")
             .required(false)
             .value_parser(model_value_parser)
-            .default_value("DMG-B"))
+            .default_value("CGB-E"))
         .arg(arg!(-g --"gbs" <GBS> "GBS file to render")
             .required(false)
             .value_parser(value_parser!(PathBuf)))
@@ -88,6 +89,14 @@ fn get_renderer_options() -> RendererOptions {
             .num_args(2)
             .value_names(["ROM", "SAV"])
             .value_parser(value_parser!(PathBuf)))
+        .arg(Arg::new("2xlsdj")
+            .short('2')
+            .long("2xlsdj")
+            .help("2x LSDj ROM/SAV pair to render")
+            .required(false)
+            .num_args(4)
+            .value_names(["ROM", "SAV", "ROM2X", "SAV2X"])
+            .value_parser(value_parser!(PathBuf)))
         .arg(arg!(-v --"vgm" <VGM> "VGM file to render")
             .required(false)
             .value_parser(value_parser!(PathBuf)))
@@ -98,16 +107,24 @@ fn get_renderer_options() -> RendererOptions {
 
     let mut options = RendererOptions::default();
 
+    options.auto_lsdj_sync = true;
+
     if let Some(mut lsdj_files) = matches.get_many::<PathBuf>("lsdj") {
         let rom_path = lsdj_files.next().cloned().expect("ROM file argument required for --lsdj").to_str().unwrap().to_string();
         let sav_path = lsdj_files.next().cloned().expect("SAV file argument required for --lsdj").to_str().unwrap().to_string();
         options.input = RenderInput::LSDj(rom_path, sav_path);
+    } else if let Some(mut lsdj_files) = matches.get_many::<PathBuf>("2xlsdj") {
+        let rom_path = lsdj_files.next().cloned().expect("ROM file argument required for --2xlsdj").to_str().unwrap().to_string();
+        let sav_path = lsdj_files.next().cloned().expect("SAV file argument required for --2xlsdj").to_str().unwrap().to_string();
+        let rom_path_2x = lsdj_files.next().cloned().expect("ROM2X file argument required for --2xlsdj").to_str().unwrap().to_string();
+        let sav_path_2x = lsdj_files.next().cloned().expect("SAV2X file argument required for --2xlsdj").to_str().unwrap().to_string();
+        options.input = RenderInput::LSDj2x(rom_path, sav_path, rom_path_2x, sav_path_2x);
     } else if let Some(gbs_file) = matches.get_one::<PathBuf>("gbs") {
         options.input = RenderInput::GBS(gbs_file.to_str().unwrap().to_string());
     } else if let Some(vgm_file) = matches.get_one::<PathBuf>("vgm") {
         options.input = RenderInput::VGM(vgm_file.to_str().unwrap().to_string());
     } else {
-        panic!("One of --gbs/--lsdj/--vgm is required");
+        panic!("One of --gbs/--lsdj/--2xlsdj/--vgm is required");
     }
 
     options.video_options.output_path = matches.get_one::<PathBuf>("output").cloned().unwrap().to_str().unwrap().to_string();
@@ -126,17 +143,28 @@ fn get_renderer_options() -> RendererOptions {
     options.video_options.sample_rate = sample_rate;
     options.video_options.audio_time_base = (1, sample_rate).into();
 
-    let track = matches.get_one::<u8>("track").cloned().unwrap();
-    if track == 0 {
-        println!("Warning: tracks are now 1-indexed. Choosing track 1 instead.");
+    for (i, track) in matches.get_many::<u8>("track").unwrap().cloned().enumerate() {
+        match i {
+            0 => options.track_index = track.saturating_sub(1),
+            1 => options.track_index_2x = track.saturating_sub(1),
+            _ => panic!("Too many arguments for --track")
+        };
     }
-    options.track_index = track.saturating_sub(1);
-    options.stop_condition = matches.get_one::<StopCondition>("stop-at").cloned().unwrap();
+
+    options.stop_condition = match (matches.get_one::<StopCondition>("stop-at").cloned().unwrap(), &options.input) {
+        (StopCondition::Loops(loops), RenderInput::VGM(vgm_path)) => {
+            let vgm_s = vgm::Vgm::open(vgm_path).unwrap();
+            let frames = vgm::duration_frames(&vgm_s, loops);
+            StopCondition::Frames(frames as u64)
+        },
+        (stop_condition, _) => stop_condition
+    };
+
     options.fadeout_length = matches.get_one::<u64>("stop-fadeout").cloned().unwrap();
 
     let ow = matches.get_one::<u32>("ow").cloned().unwrap();
     let oh = matches.get_one::<u32>("oh").cloned().unwrap();
-    options.video_options.resolution_out = (ow, oh);
+    options.set_resolution_smart(ow, oh);
 
     options.model = matches.get_one::<Model>("model").cloned().unwrap();
 

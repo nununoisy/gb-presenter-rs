@@ -1,7 +1,9 @@
+use anyhow::bail;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::ffi::OsStr;
 use sameboy::{Model, Revision};
+use crate::config::Config;
 use crate::video_builder::video_options::VideoOptions;
 use crate::visualizer::channel_settings::ChannelSettings;
 
@@ -30,28 +32,28 @@ pub enum StopCondition {
 }
 
 impl FromStr for StopCondition {
-    type Err = String;
+    type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let parts: Vec<_> = s.split(':').collect();
         if parts.len() != 2 {
-            return Err("Stop condition format invalid, try one of 'time:3', 'time:nsfe', 'frames:180', or 'loops:2'.".to_string());
+            bail!("Stop condition format invalid, try one of 'time:3', 'time:nsfe', 'frames:180', or 'loops:2'.");
         }
 
         match parts[0] {
             "time" => {
-                let time = u64::from_str(parts[1]).map_err( | e | e.to_string()) ?;
+                let time = u64::from_str(parts[1])?;
                 Ok(StopCondition::Frames(time * FRAME_RATE as u64))
             },
             "frames" => {
-                let frames = u64::from_str(parts[1]).map_err(|e| e.to_string())?;
+                let frames = u64::from_str(parts[1])?;
                 Ok(StopCondition::Frames(frames))
             },
             "loops" => {
-                let loops = usize::from_str(parts[1]).map_err(|e| e.to_string())?;
+                let loops = usize::from_str(parts[1])?;
                 Ok(StopCondition::Loops(loops))
             },
-            _ => Err(format!("Unknown condition type {}. Valid types are 'time', 'frames', and 'loops'", parts[0]))
+            _ => bail!("Unknown condition type {}. Valid types are 'time', 'frames', and 'loops'", parts[0])
         }
     }
 }
@@ -63,6 +65,7 @@ pub enum RenderInput {
     None,
     GBS(String),
     LSDj(String, String),
+    LSDj2x(String, String, String, String),
     VGM(String)
 }
 
@@ -72,11 +75,13 @@ pub struct RendererOptions {
     pub video_options: VideoOptions,
 
     pub track_index: u8,
+    pub track_index_2x: u8,
     pub stop_condition: StopCondition,
     pub fadeout_length: u64,
+    pub auto_lsdj_sync: bool,
 
     pub model: Model,
-    pub channel_settings: HashMap<(String, String), ChannelSettings>
+    pub config: Config
 }
 
 impl Default for RendererOptions {
@@ -90,7 +95,7 @@ impl Default for RendererOptions {
                 video_time_base: (70_224, 4_194_304).into(),
                 video_codec: "libx264".to_string(),
                 video_codec_params: Default::default(),
-                pixel_format_in: "bgra".to_string(),
+                pixel_format_in: "rgba".to_string(),
                 pixel_format_out: "yuv420p".to_string(),
                 resolution_in: (960, 540),
                 resolution_out: (1920, 1080),
@@ -103,23 +108,24 @@ impl Default for RendererOptions {
                 sample_rate: 44_100,
             },
             track_index: 0,
+            track_index_2x: 0,
             stop_condition: StopCondition::Frames(300 * FRAME_RATE as u64),
             fadeout_length: 180,
+            auto_lsdj_sync: false,
             model: Model::DMG(Revision::RevB),
-            channel_settings: HashMap::new()
+            config: Config::default()
         }
     }
 }
 
 impl RendererOptions {
-    // TODO: this works, but there are issues with the FFmpeg library that make it hard to use.
     pub fn set_resolution_smart(&mut self, w: u32, h: u32) {
         self.video_options.resolution_out = (w, h);
 
         self.video_options.resolution_in = if w >= h {
-            (w, ((w as f32) * (h as f32) / 960.0) as u32)
+            (960, ((960.0 / w as f32) * (h as f32)) as u32)
         } else {
-            (((h as f32) * (w as f32) / 960.0) as u32, h)
+            (((960.0 / h as f32) * (w as f32)) as u32, 960)
         };
 
         println!("{}x{}", self.video_options.resolution_in.0, self.video_options.resolution_in.1);

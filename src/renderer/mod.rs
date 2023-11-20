@@ -4,15 +4,16 @@ pub mod gbs;
 pub mod vgm;
 pub mod m3u_searcher;
 
-use std::cell::RefCell;
+use anyhow::{Result, anyhow, bail};
 use std::fmt::{Display, Formatter};
 use std::fs;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use ringbuf::{HeapRb, Rb};
-use ringbuf::ring_buffer::RbBase;
+use ringbuf::{HeapRb, Rb, ring_buffer::RbBase};
 use render_options::{RendererOptions, RenderInput};
-use sameboy::{ApuChannel, Gameboy, JoypadButton, Model};
+use sameboy::{Gameboy, JoypadButton};
+use crate::config::PianoRollConfig;
+use crate::renderer::lsdj::EndDetector;
 use crate::renderer::render_options::StopCondition;
 use crate::video_builder;
 use crate::video_builder::VideoBuilder;
@@ -36,8 +37,10 @@ impl Display for SongPosition {
 
 pub struct Renderer {
     options: RendererOptions,
-    gb: Box<Gameboy>,
-    viz: Rc<RefCell<Visualizer>>,
+    gb: Gameboy,
+    gb_2x: Gameboy,
+    viz: Arc<Mutex<Visualizer>>,
+    end_detector: Arc<Mutex<lsdj::EndDetector>>,
     vb: VideoBuilder,
 
     cur_frame: u64,
@@ -52,19 +55,25 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(options: RendererOptions) -> Result<Self, String> {
-        let gb = Gameboy::new(options.clone().model);
-        let viz = Rc::new(RefCell::new(Visualizer::new(
-            options.video_options.resolution_in.0 as i32,
-            options.video_options.resolution_in.1 as i32,
-            options.video_options.sample_rate as u32
+    pub fn new(options: RendererOptions) -> Result<Self> {
+        let gb = Gameboy::new(0, options.clone().model)?;
+        let gb_2x = Gameboy::new(1, options.clone().model)?;
+        let viz = Arc::new(Mutex::new(Visualizer::new(
+            8,
+            options.video_options.resolution_in.0,
+            options.video_options.resolution_in.1,
+            options.video_options.sample_rate as u32,
+            options.config.clone().piano_roll
         )));
         let vb = VideoBuilder::new(options.video_options.clone())?;
+        let end_detector = Arc::new(Mutex::new(EndDetector::new()));
 
         Ok(Self {
             options: options.clone(),
             gb,
+            gb_2x,
             viz,
+            end_detector,
             vb,
             cur_frame: 0,
             encode_start: Instant::now(),
@@ -78,100 +87,207 @@ impl Renderer {
         })
     }
 
-    pub fn start_encoding(&mut self) -> Result<(), String> {
+    pub fn is_2x(&self) -> bool {
+        matches!(&self.options.input, RenderInput::LSDj2x(_, _, _, _))
+    }
+
+    pub fn start_encoding(&mut self) -> Result<()> {
         self.gb.set_sample_rate(self.options.video_options.sample_rate as usize);
         self.gb.emulate_joypad_bouncing(false);
+        self.gb.allow_illegal_inputs(true);
+        self.gb.set_rendering_disabled(true);
 
         match &self.options.input {
-            RenderInput::None => return Err("No input specified.".to_string()),
+            RenderInput::None => bail!("No input specified."),
             RenderInput::GBS(gbs_path) => {
                 let gbs = fs::read(gbs_path)
-                    .map_err(|e| format!("Failed to read GBS! {}", e))?;
-                self.gb.load_gbs(&gbs);
+                    .map_err(|e| anyhow!("Failed to read GBS! {}", e))?;
+                self.gb.load_gbs(&gbs)
+                    .map_err(|e| anyhow!("Failed to load GBS! {}", e))?;
                 self.gb.gbs_change_track(self.options.track_index);
             },
             RenderInput::LSDj(rom_path, sav_path) => {
-                let boot_rom = fs::read(self.gb.preferred_boot_rom())
-                    .map_err(|e| format!("Failed to read boot ROM! {}", e))?;
-                self.gb.load_boot_rom(&boot_rom);
-
                 let rom = fs::read(rom_path)
-                    .map_err(|e| format!("Failed to read LSDj ROM! {}", e))?;
+                    .map_err(|e| anyhow!("Failed to read LSDj ROM! {}", e))?;
                 self.gb.load_rom(&rom);
 
                 let sav = fs::read(sav_path)
-                    .map_err(|e| format!("Failed to read LSDj SAV! {}", e))?;
+                    .map_err(|e| anyhow!("Failed to read LSDj SAV! {}", e))?;
                 self.gb.load_sram(&sav);
 
-                println!("{}", self.gb.game_title());
+                println!("{} {}", self.gb.game_title().unwrap_or("<error>".to_string()), self.options.track_index);
 
                 while !self.gb.boot_rom_finished() {
                     self.gb.run();
                 }
 
-                self.gb.joypad_macro_press(&[], Some(Duration::from_millis(5000)));
-                lsdj::select_track_joypad_macro(&mut self.gb, self.options.track_index);
+                let sync_role = if self.options.auto_lsdj_sync {
+                    lsdj::SyncRole::NoSync
+                } else {
+                    lsdj::SyncRole::Ignore
+                };
+
+                self.gb.joypad_macro_press(&[], Some(Duration::from_secs(5)));
+                lsdj::select_track_joypad_macro(&mut self.gb, self.options.track_index, sync_role);
+
+                self.gb.set_memory_interceptor(Some(self.end_detector.clone()));
             },
+            RenderInput::LSDj2x(rom_path, sav_path, rom_path_2x, sav_path_2x) => {
+                self.gb_2x.set_sample_rate(self.options.video_options.sample_rate as usize);
+                self.gb_2x.emulate_joypad_bouncing(false);
+                self.gb_2x.allow_illegal_inputs(true);
+                self.gb_2x.set_rendering_disabled(true);
+
+                let rom = fs::read(rom_path)
+                    .map_err(|e| anyhow!("Failed to read LSDj ROM! {}", e))?;
+                self.gb.load_rom(&rom);
+
+                let sav = fs::read(sav_path)
+                    .map_err(|e| anyhow!("Failed to read LSDj SAV! {}", e))?;
+                self.gb.load_sram(&sav);
+
+                let rom_2x = fs::read(rom_path_2x)
+                    .map_err(|e| anyhow!("Failed to read LSDj ROM! {}", e))?;
+                self.gb_2x.load_rom(&rom_2x);
+
+                let sav_2x = fs::read(sav_path_2x)
+                    .map_err(|e| anyhow!("Failed to read LSDj SAV! {}", e))?;
+                self.gb_2x.load_sram(&sav_2x);
+
+                println!("(1) {} {}", self.gb.game_title().unwrap_or("<error>".to_string()), self.options.track_index);
+                println!("(2) {} {}", self.gb_2x.game_title().unwrap_or("<error>".to_string()), self.options.track_index_2x);
+
+                while !self.gb.boot_rom_finished() {
+                    self.gb.run();
+                }
+                while !self.gb_2x.boot_rom_finished() {
+                    self.gb_2x.run();
+                }
+
+                let (sync_role, sync_role_2x) = if self.options.auto_lsdj_sync {
+                    (lsdj::SyncRole::Primary, lsdj::SyncRole::Secondary)
+                } else {
+                    (lsdj::SyncRole::Ignore, lsdj::SyncRole::Ignore)
+                };
+
+                self.gb.joypad_macro_press(&[], Some(Duration::from_secs(5)));
+                lsdj::select_track_joypad_macro(&mut self.gb, self.options.track_index, sync_role);
+                self.gb_2x.joypad_macro_press(&[], Some(Duration::from_secs(5)));
+                lsdj::select_track_joypad_macro(&mut self.gb_2x, self.options.track_index_2x, sync_role_2x);
+
+                self.gb.set_memory_interceptor(Some(self.end_detector.clone()));
+            }
             RenderInput::VGM(vgm_path) => {
                 let vgm_data = fs::read(vgm_path)
-                    .map_err(|e| format!("Failed to read VGM! {}", e))?;
+                    .map_err(|e| anyhow!("Failed to read VGM! {}", e))?;
 
                 let mut vgm_s = vgm::Vgm::new(&vgm_data)?;
                 let (gbs, engine_data) = vgm::converter::vgm_to_gbs(&mut vgm_s)?;
 
                 println!("{:?}", engine_data.loop_data);
 
-                self.gb.load_gbs(&gbs);
+                self.gb.load_gbs(&gbs)
+                    .map_err(|e| anyhow!("Failed to convert VGM to valid GBS! {}", e))?;
             }
         }
 
+        self.gb.joypad_release_all();
         self.gb.set_apu_receiver(Some(self.viz.clone()));
-
-        match &self.options.input {
-            RenderInput::LSDj(_, _) => self.gb.joypad_macro_press(&[JoypadButton::Start], None),
-            _ => ()
-        }
         // Clear the sample buffer to get rid of boot ROM ding and LSDj selection frame silence
         let _ = self.gb.get_audio_samples(None).unwrap();
 
-        for ((chip, channel), settings) in &self.options.channel_settings {
-            let mut viz = self.viz.borrow_mut();
-            let manager = match chip.as_str() {
-                "LR35902" => viz.settings_manager_mut(),
-                _ => continue
-            };
-            let current_settings = manager.settings_mut(match channel.as_str() {
-                "Pulse 1" => ApuChannel::Pulse1,
-                "Pulse 2" => ApuChannel::Pulse2,
-                "Wave" => ApuChannel::Wave,
-                "Noise" => ApuChannel::Noise,
-                _ => continue
-            });
-            current_settings.set_hidden(settings.hidden());
-            current_settings.set_colors(&settings.colors());
+        if self.is_2x() {
+            self.gb_2x.joypad_release_all();
+            self.gb_2x.set_apu_receiver(Some(self.viz.clone()));
+            let _ = self.gb_2x.get_audio_samples(None).unwrap();
+
+            self.gb.run_frame();
+            self.gb_2x.run_frame();
+            self.gb.connect_console(&mut self.gb_2x);
+        }
+
+        {
+            let mut viz = self.viz.lock().unwrap();
+
+            if !self.is_2x() {
+                for channel in 4..8 {
+                    viz.settings_manager_mut()
+                        .settings_mut(channel)
+                        .unwrap()
+                        .set_hidden(true);
+                }
+            }
         }
 
         self.vb.start_encoding()?;
         self.encode_start = Instant::now();
+        self.frame_timestamp = 0.0;
+        self.frame_times.clear();
+        self.last_position = SongPosition::default();
+        self.loop_count = 0;
+        self.loop_duration = None;
+        self.fadeout_timer = None;
+        self.expected_duration = None;
 
         Ok(())
     }
 
-    pub fn step(&mut self) -> Result<bool, String> {
-        self.gb.run_frame();
+    pub fn step(&mut self) -> Result<bool> {
+        if self.is_2x() {
+            self.gb.run_frame_sync(&mut self.gb_2x);
 
-        self.viz.borrow_mut().draw();
+            if self.frame_timestamp < 0.5 {
+                self.gb.set_joypad_button(JoypadButton::Start, true);
+            } else {
+                self.gb.joypad_release_all();
+            }
+            self.gb_2x.joypad_release_all();
+        } else {
+            self.gb.run_frame();
 
-        self.vb.push_video_data(&self.viz.borrow().get_canvas_buffer())?;
-        if let Some(audio) = self.gb.get_audio_samples(Some(self.vb.audio_frame_size())) {
-            let adjusted_audio = match self.fadeout_timer {
-                Some(t) => {
-                    let volume_divisor = (self.options.fadeout_length as f64 / t as f64) as i16;
-                    audio.iter().map(|s| s / volume_divisor).collect()
-                },
-                None => audio
-            };
-            self.vb.push_audio_data(video_builder::as_u8_slice(&adjusted_audio))?;
+            if self.frame_timestamp < 0.5 && matches!(&self.options.input, RenderInput::LSDj(_, _)) {
+                self.gb.set_joypad_button(JoypadButton::Start, true);
+            } else {
+                self.gb.joypad_release_all();
+            }
+        }
+
+        {
+            let mut viz = self.viz.lock().unwrap();
+            viz.draw();
+            self.vb.push_video_data(viz.get_canvas_buffer())?;
+        }
+
+        if self.is_2x() {
+            if let Some(audio) = self.gb.get_audio_samples(Some(self.vb.audio_frame_size())) {
+                if let Some(audio_2x) = self.gb_2x.get_audio_samples(Some(self.vb.audio_frame_size())) {
+                    let adjusted_audio: Vec<i16> = match self.fadeout_timer {
+                        Some(t) => {
+                            let volume_divisor = (self.options.fadeout_length as f64 / t as f64) as i16;
+                            std::iter::zip(audio, audio_2x)
+                                .map(|(s, s_2x)| s.saturating_add(s_2x) / (2 * volume_divisor))
+                                .collect()
+                        },
+                        None => {
+                            std::iter::zip(audio, audio_2x)
+                                .map(|(s, s_2x)| s.saturating_add(s_2x) / 2)
+                                .collect()
+                        }
+                    };
+                    self.vb.push_audio_data(video_builder::as_u8_slice(&adjusted_audio))?;
+                }
+            }
+        } else {
+            if let Some(audio) = self.gb.get_audio_samples(Some(self.vb.audio_frame_size())) {
+                let adjusted_audio = match self.fadeout_timer {
+                    Some(t) => {
+                        let volume_divisor = (self.options.fadeout_length as f64 / t as f64) as i16;
+                        audio.iter().map(|s| s / volume_divisor).collect()
+                    },
+                    None => audio
+                };
+                self.vb.push_audio_data(video_builder::as_u8_slice(&adjusted_audio))?;
+            }
         }
 
         self.vb.step_encoding()?;
@@ -206,7 +322,7 @@ impl Renderer {
         Ok(true)
     }
 
-    pub fn finish_encoding(&mut self) -> Result<(), String> {
+    pub fn finish_encoding(&mut self) -> Result<()> {
         self.vb.finish_encoding()?;
 
         Ok(())
@@ -267,7 +383,8 @@ impl Renderer {
 
     pub fn song_position(&mut self) -> Option<SongPosition> {
         match &self.options.input {
-            RenderInput::LSDj(_, _) => lsdj::get_song_position(&mut self.gb),
+            RenderInput::LSDj(_, _) => lsdj::get_song_position(&mut self.gb, self.end_detector.clone()),
+            RenderInput::LSDj2x(_, _, _, _) => lsdj::get_song_position(&mut self.gb, self.end_detector.clone()),
             _ => None
         }
     }

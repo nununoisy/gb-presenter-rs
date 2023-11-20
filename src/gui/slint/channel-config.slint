@@ -8,15 +8,16 @@ export struct ChannelConfig {
 }
 
 component ChannelConfigRow {
-    in-out property<ChannelConfig> config;
+    in property<ChannelConfig> config;
     in property<bool> enabled: true;
+
+    property<ChannelConfig> i-config;
 
     callback updated(ChannelConfig);
 
     HorizontalLayout {
         alignment: stretch;
 
-/*
         Switch {
             text: root.config.name;
             checked: !root.config.hidden;
@@ -24,17 +25,10 @@ component ChannelConfigRow {
             width: 150px;
 
             toggled => {
-                root.config.hidden = !root.config.hidden;
-                root.updated(root.config);
+                root.i-config = root.config;
+                root.i-config.hidden = !root.i-config.hidden;
+                root.updated(root.i-config);
             }
-        }
-*/
-
-        Text {
-            text: root.config.name;
-            width: 150px;
-            height: 20px;
-            vertical-alignment: center;
         }
 
         for color[i] in config.colors: Rectangle {
@@ -65,7 +59,9 @@ component ChannelConfigRow {
                         g: color[1];
                         b: color[2];
                         changed(r, g, b) => {
-                            root.config.colors[i] = [r, g, b];
+                            root.i-config = root.config;
+                            root.i-config.colors[i] = [r, g, b];
+                            root.updated(root.i-config);
                         }
                     }
                     StandardButton {
@@ -98,15 +94,47 @@ component ChannelConfigRow {
 
 export component ChannelConfigView {
     in-out property<[ChannelConfig]> config-lr35902;
+    in-out property<[ChannelConfig]> config-lr35902-2x;
+
+    in property<[string]> active-chips: [];
     in property<bool> enabled: true;
 
     VerticalBox {
         alignment: start;
-        for config[i] in config-lr35902: ChannelConfigRow {
-            config: config;
-            enabled: root.enabled;
-            updated(new-config) => {
-                root.config-lr35902[i] = new-config;
+        padding: 0;
+
+        HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Configure chip:";
+                vertical-alignment: center;
+            }
+            i-chip-select := ComboBox {
+                model: root.active-chips;
+                enabled: root.enabled;
+            }
+        }
+        if i-chip-select.current-value == "LR35902": VerticalBox {
+            alignment: start;
+
+            for config[i] in config-lr35902: ChannelConfigRow {
+                config: config;
+                enabled: root.enabled;
+                updated(new-config) => {
+                    root.config-lr35902[i] = new-config;
+                }
+            }
+        }
+        if i-chip-select.current-value == "LR35902 (2x)": VerticalBox {
+            alignment: start;
+
+            for config[i] in config-lr35902-2x: ChannelConfigRow {
+                config: config;
+                enabled: root.enabled;
+                updated(new-config) => {
+                    root.config-lr35902-2x[i] = new-config;
+                }
             }
         }
     }

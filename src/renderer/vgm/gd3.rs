@@ -1,3 +1,4 @@
+use anyhow::{Result, Context, bail};
 use std::slice;
 
 #[derive(Clone, Default)]
@@ -12,9 +13,9 @@ pub struct Gd3 {
 }
 
 impl Gd3 {
-    pub fn new(data: &[u8]) -> Result<Self, String> {
+    pub fn new(data: &[u8]) -> Result<Self> {
         if &data[0..4] != b"Gd3 " {
-            return Err("Invalid GD3 metadata".to_string());
+            bail!("Invalid GD3 metadata!");
         }
 
         let mut result = Self::default();
@@ -32,42 +33,31 @@ impl Gd3 {
             )
         };
         let string_table_bytes = String::from_utf16(utf16_string_slice)
-            .map_err(|e| e.to_string())?
+            .context("Invalid GD3 string table!")?
             .into_bytes();
         let mut string_table = string_table_bytes.split(|c| *c == 0);
 
-        result.title = String::from_utf8(string_table.next().ok_or("Missing title!".to_string())?.to_vec())
-            .map_err(|e| e.to_string())?;
+        result.title = String::from_utf8(string_table.next().context("Missing title!")?.to_vec())?;
 
-        string_table.next()
-            .ok_or("Missing original title!".to_string())?;
+        string_table.next().context("Missing original title!")?;
 
-        result.game = String::from_utf8(string_table.next().ok_or("Missing game name!".to_string())?.to_vec())
-            .map_err(|e| e.to_string())?;
+        result.game = String::from_utf8(string_table.next().context("Missing game name!")?.to_vec())?;
 
-        string_table.next()
-            .ok_or("Missing original game name!".to_string())?;
+        string_table.next().context("Missing original game name!")?;
 
-        result.system = String::from_utf8(string_table.next().ok_or("Missing system name!".to_string())?.to_vec())
-            .map_err(|e| e.to_string())?;
+        result.system = String::from_utf8(string_table.next().context("Missing system name!")?.to_vec())?;
 
-        string_table.next()
-            .ok_or("Missing original system name!".to_string())?;
+        string_table.next().context("Missing original system name!")?;
 
-        result.author = String::from_utf8(string_table.next().ok_or("Missing author name!".to_string())?.to_vec())
-            .map_err(|e| e.to_string())?;
+        result.author = String::from_utf8(string_table.next().context("Missing author name!")?.to_vec())?;
 
-        string_table.next()
-            .ok_or("Missing original author name!".to_string())?;
+        string_table.next().context("Missing original author name!")?;
 
-        string_table.next()
-            .ok_or("Missing release date!".to_string())?;
+        string_table.next().context("Missing release date!")?;
 
-        result.ripper = String::from_utf8(string_table.next().ok_or("Missing ripper name!".to_string())?.to_vec())
-            .map_err(|e| e.to_string())?;
+        result.ripper = String::from_utf8(string_table.next().context("Missing ripper name!")?.to_vec())?;
 
-        string_table.next()
-            .ok_or("Missing notes!".to_string())?;
+        string_table.next().context("Missing notes!")?;
 
         Ok(result)
     }

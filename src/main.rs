@@ -5,6 +5,7 @@ mod video_builder;
 mod renderer;
 mod gui;
 mod cli;
+mod config;
 
 fn main() {
     video_builder::init().unwrap();

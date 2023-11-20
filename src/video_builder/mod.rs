@@ -4,17 +4,19 @@ mod ffmpeg_hacks;
 mod encoding;
 pub mod backgrounds;
 
+use anyhow::{Result, Context};
 use std::collections::VecDeque;
 use std::{mem, slice};
 use std::str::FromStr;
-use ffmpeg_next::{self, Error, Rational, format, encoder, codec, ChannelLayout, Dictionary, software, frame};
+use ffmpeg_next::{self, format, encoder, codec, ChannelLayout, Dictionary, software, frame};
 use video_options::VideoOptions;
 use vb_unwrap::VideoBuilderUnwrap;
 use crate::video_builder::backgrounds::{get_video_background, VideoBackground};
-use crate::video_builder::ffmpeg_hacks::{ffmpeg_copy_codec_params, ffmpeg_copy_context_params, ffmpeg_create_context, ffmpeg_sample_format_from_string, ffmpeg_set_audio_stream_frame_size};
+use crate::video_builder::ffmpeg_hacks::{ffmpeg_copy_codec_params, ffmpeg_copy_context_params, ffmpeg_create_context, ffmpeg_sample_format_from_string, ffmpeg_get_audio_context_frame_size};
+pub use ffmpeg_hacks::ffmpeg_version;
 
-pub fn init() -> Result<(), Error> {
-    ffmpeg_next::init()
+pub fn init() -> Result<()> {
+    ffmpeg_next::init().context("Initializing FFmpeg")
 }
 
 pub fn as_u8_slice<T: Sized>(s: &[T]) -> &[u8] {
@@ -51,7 +53,7 @@ pub struct VideoBuilder {
 }
 
 impl VideoBuilder {
-    pub fn new(options: VideoOptions) -> Result<Self, String> {
+    pub fn new(options: VideoOptions) -> Result<Self> {
         let mut out_ctx = format::output(&options.output_path).vb_unwrap()?;
 
         let mut metadata = Dictionary::new();
@@ -146,11 +148,11 @@ impl VideoBuilder {
         })
     }
 
-    fn create_video_encoder(options: VideoOptions, out_ctx: &mut format::context::Output) -> Result<(encoder::Video, usize), String> {
+    fn create_video_encoder(options: VideoOptions, out_ctx: &mut format::context::Output) -> Result<(encoder::Video, usize)> {
         let global_header = out_ctx.format().flags().contains(format::Flags::GLOBAL_HEADER);
         let output_format = format::Pixel::from_str(&options.pixel_format_out).vb_unwrap()?;
         let codec = encoder::find_by_name(&options.video_codec)
-            .ok_or_else(|| format!("Unknown codec {}", options.video_codec))?;
+            .with_context(|| format!("Unknown codec {}", options.video_codec))?;
 
         let mut stream = out_ctx.add_stream(codec).vb_unwrap()?;
         let mut context = ffmpeg_create_context(codec, stream.parameters())?
@@ -198,11 +200,11 @@ impl VideoBuilder {
         Ok((v_encoder, v_stream_idx))
     }
 
-    fn create_audio_encoder(options: VideoOptions, out_ctx: &mut format::context::Output) -> Result<(encoder::Audio, usize, usize), String> {
+    fn create_audio_encoder(options: VideoOptions, out_ctx: &mut format::context::Output) -> Result<(encoder::Audio, usize, usize)> {
         let output_format = ffmpeg_sample_format_from_string(&options.sample_format_out);
         let channel_layout = ChannelLayout::default(options.audio_channels);
         let codec = encoder::find_by_name(&options.audio_codec)
-            .ok_or_else(|| format!("Unknown codec {}", options.audio_codec))?;
+            .with_context(|| format!("Unknown codec {}", options.audio_codec))?;
 
         let mut stream = out_ctx.add_stream(codec).vb_unwrap()?;
         let mut context = ffmpeg_create_context(codec, stream.parameters())?
@@ -221,7 +223,7 @@ impl VideoBuilder {
 
         stream.set_time_base(options.audio_time_base);
 
-        let a_frame_size = 1024; // ffmpeg_set_audio_stream_frame_size(&mut stream, 1024);
+        let a_frame_size = ffmpeg_get_audio_context_frame_size(&context, 1024);
 
         let mut context_options = Dictionary::new();
         // Add some default options for certain codecs

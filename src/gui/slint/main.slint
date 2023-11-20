@@ -1,4 +1,4 @@
-import { Button, ComboBox, CheckBox, SpinBox, LineEdit, VerticalBox } from "std-widgets.slint";
+import { AboutSlint, Button, ComboBox, CheckBox, SpinBox, Switch, LineEdit, VerticalBox } from "std-widgets.slint";
 import { ChannelConfigView, ChannelConfig } from "./channel-config.slint";
 import { ColorUtils } from "./color-picker.slint";
 export { ColorUtils }
@@ -8,31 +8,51 @@ export enum InputType {
 }
 
 export component MainWindow inherits Window {
-    callback browse_for_rom();
-    callback browse_for_sav();
-    callback browse_for_background();
-    callback update_formatted_duration();
-    callback start_render();
-    callback cancel_render();
+    callback browse-for-rom(bool);
+    callback browse-for-sav(bool);
+    callback set-lsdj-2x(bool) -> bool;
+    callback browse-for-background();
+    callback import-config();
+    callback export-config();
+    callback reset-config();
+    callback update-formatted-duration();
+    callback update-channel-configs(bool);
+    callback start-render();
+    callback cancel-render();
 
-    in property <string> rom_path: "";
-    in property <string> sav_path: "";
-    in-out property <string> background_path: "";
-    in property <bool> input_valid: false;
-    in property <InputType> input_type: None;
-    in-out property <int> selected_track_index: -1;
-    in-out property <string> selected_track_text: "Select a track...";
-    in-out property <int> selected_model_index: 6;
-    in-out property <string> selected_model_text: "CGB-E";
-    in-out property <string> track_duration_num: "300";
-    in-out property <string> track_duration_type: "seconds";
-    in property <string> track_duration_formatted: "<unknown>";
-    in-out property <int> fadeout_duration: 180;
-    in-out property <int> output_width: 1920;
-    in-out property <int> output_height: 1080;
-    in property <[string]> track_titles: [];
+    in property <string> version: "?";
+    in property <string> sameboy-version: "?";
+    in property <string> ffmpeg-version: "?";
+
+    in property <string> rom-path: "";
+    in property <string> sav-path: "";
+    in property <string> rom-path-2x: "";
+    in property <string> sav-path-2x: "";
+    in-out property <string> background-path: "";
+    in property <bool> input-valid: false;
+    in property <InputType> input-type: None;
+    in-out property <int> selected-track-index: -1;
+    in-out property <string> selected-track-text: "Select a track...";
+    in-out property <int> selected-track-index-2x: -1;
+    in-out property <string> selected-track-text-2x: "Select a track...";
+    in-out property <int> selected-model-index: 6;
+    in-out property <string> selected-model-text: "CGB-E";
+    in-out property <string> track-duration-num: "300";
+    in-out property <string> track-duration-type: "seconds";
+    in property <string> track-duration-formatted: "<unknown>";
+    in-out property <int> fadeout-duration: 180;
+    in-out property <int> output-width: 1920;
+    in-out property <int> output-height: 1080;
+    in property <[string]> track-titles: [];
+    in property <[string]> track-titles-2x: [];
 
     in-out property<[ChannelConfig]> config-lr35902: [
+        { name: "Pulse 1", hidden: false, colors: [] },
+        { name: "Pulse 2", hidden: false, colors: [] },
+        { name: "Wave", hidden: false, colors: [] },
+        { name: "Noise", hidden: false, colors: [] }
+    ];
+    in-out property<[ChannelConfig]> config-lr35902-2x: [
         { name: "Pulse 1", hidden: false, colors: [] },
         { name: "Pulse 2", hidden: false, colors: [] },
         { name: "Wave", hidden: false, colors: [] },
@@ -44,9 +64,105 @@ export component MainWindow inherits Window {
     in property <string> progress-title: "Idle";
     in property <string> progress-status: "";
     in property <bool> progress-error: false;
+    in property <bool> progress-indeterminate: false;
+
+    property<float> i-progress-anim-tick: -cos(180deg * mod(animation-tick() / 1.3s, 2) / 2) + 1;
+    property<bool> lsdj-2x: false;
+
+    public function is-2x() -> bool {
+        root.input-type == InputType.LSDj && root.lsdj-2x
+    }
 
     title: "GBPresenter";
     icon: @image-url("gb-presenter-icon.png");
+
+    Rectangle {
+        Button {
+            icon: @image-url("info.svg");
+            x: parent.width - self.width - 8px;
+            y: 16px;
+            clicked => {
+                i-about-popup.show()
+            }
+        }
+        i-about-popup := PopupWindow {
+            x: parent.width - 308px;
+            y: 16px;
+            width: 300px;
+            height: 300px;
+
+            Rectangle {
+                background: #1c1c1c;
+                border-radius: 2px;
+
+                VerticalBox {
+                    alignment: start;
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        
+                        Image {
+                            width: 24px;
+                            source: @image-url("gb-presenter-icon.png");
+                        }
+                        Text {
+                            text: "GBPresenter v" + root.version;
+                            font-size: 24px;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Text {
+                        text: "by nununoisy";
+                        horizontal-alignment: center;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+
+                        Image {
+                            width: 16px;
+                            source: @image-url("sameboy-icon.png");
+                        }
+                        Text {
+                            text: "SameBoy v" + root.sameboy-version;
+                            font-size: 16px;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Text {
+                        text: "https://sameboy.github.io/";
+                        horizontal-alignment: center;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+
+                        Image {
+                            width: 16px;
+                            source: @image-url("ffmpeg-icon.png");
+                        }
+                        Text {
+                            text: "FFmpeg v" + root.ffmpeg-version;
+                            font-size: 16px;
+                            vertical-alignment: center;
+                        }
+                    }
+                    Text {
+                        text: "https://ffmpeg.org/";
+                        horizontal-alignment: center;
+                    }
+                    AboutSlint {
+                        preferred-height: 100px;
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+
+                        Button { text: "Close"; }
+                    }
+                }
+            }
+        }
+    }
 
     VerticalBox {
         alignment: start;
@@ -59,24 +175,25 @@ export component MainWindow inherits Window {
         HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
+
             Text {
                 text: "Input ROM/GBS/VGM:";
                 vertical-alignment: center;
             }
             LineEdit {
                 enabled: false;
-                text: rom_path;
+                text: rom-path;
                 placeholder-text: "No ROM/GBS selected";
             }
             Button {
                 text: "Browse...";
                 enabled: !rendering;
                 clicked => {
-                    root.browse_for_rom();
+                    root.browse-for-rom(false);
                 }
             }
         }
-        if input_type == InputType.LSDj : HorizontalLayout {
+        if input-type == InputType.LSDj : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             Text {
@@ -85,14 +202,67 @@ export component MainWindow inherits Window {
             }
             LineEdit {
                 enabled: false;
-                text: sav_path;
+                text: sav-path;
                 placeholder-text: "No save selected";
             }
             Button {
                 text: "Browse...";
                 enabled: !rendering;
                 clicked => {
-                    root.browse_for_sav();
+                    root.browse-for-sav(false);
+                }
+            }
+        }
+        if input-type == InputType.LSDj : HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+
+            Switch {
+                text: "2x LSDj";
+                enabled: !rendering;
+                checked <=> root.lsdj-2x;
+                toggled => {
+                    root.lsdj-2x = root.set-lsdj-2x(root.lsdj-2x);
+                }
+            }
+        }
+        if input-type == InputType.LSDj && lsdj-2x : HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "2x LSDj ROM:";
+                vertical-alignment: center;
+            }
+            LineEdit {
+                enabled: false;
+                text: rom-path-2x;
+                placeholder-text: "No 2x LSDj ROM selected";
+            }
+            Button {
+                text: "Browse...";
+                enabled: !rendering;
+                clicked => {
+                    root.browse-for-rom(true);
+                }
+            }
+        }
+        if input-type == InputType.LSDj && lsdj-2x : HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "2x LSDj SAV:";
+                vertical-alignment: center;
+            }
+            LineEdit {
+                enabled: false;
+                text: sav-path;
+                placeholder-text: "No 2x LSDj save selected";
+            }
+            Button {
+                text: "Browse...";
+                enabled: !rendering;
+                clicked => {
+                    root.browse-for-sav(true);
                 }
             }
         }
@@ -100,22 +270,74 @@ export component MainWindow inherits Window {
             alignment: stretch;
             spacing: 8px;
             Text {
-                text: "Track:";
+                text: (input-type == InputType.LSDj && lsdj-2x)
+                    ? "Track 1:"
+                    : "Track:";
                 vertical-alignment: center;
             }
             ComboBox {
-                model: track_titles;
-                current-index <=> selected_track_index;
-                current-value <=> selected_track_text;
+                model: track-titles;
+                current-index <=> selected-track-index;
+                current-value <=> selected-track-text;
                 enabled: !rendering;
                 selected => {
-                    root.update_formatted_duration();
+                    root.update-formatted-duration();
+                }
+            }
+        }
+        if input-type == InputType.LSDj && lsdj-2x : HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            Text {
+                text: "Track 2:";
+                vertical-alignment: center;
+            }
+            ComboBox {
+                model: track-titles-2x;
+                current-index <=> selected-track-index-2x;
+                current-value <=> selected-track-text-2x;
+                enabled: !rendering;
+                selected => {
+                    root.update-formatted-duration();
+                }
+            }
+        }
+        HorizontalLayout {
+            alignment: end;
+            spacing: 8px;
+            Text {
+                text: "Configuration:";
+                vertical-alignment: center;
+            }
+            Button {
+                text: "Import...";
+                enabled: !rendering;
+                clicked => {
+                    root.import-config();
+                }
+            }
+            Button {
+                text: "Export...";
+                enabled: !rendering;
+                clicked => {
+                    root.export-config();
+                }
+            }
+            Button {
+                text: "Reset";
+                enabled: !rendering;
+                clicked => {
+                    root.reset-config();
                 }
             }
         }
         ChannelConfigView {
             enabled: !rendering;
+            active-chips: (input-type == InputType.LSDj && lsdj-2x)
+                ? ["LR35902", "LR35902 (2x)"]
+                : ["LR35902"];
             config-lr35902 <=> root.config-lr35902;
+            config-lr35902-2x <=> root.config-lr35902-2x;
         }
         HorizontalLayout {
             alignment: stretch;
@@ -126,21 +348,21 @@ export component MainWindow inherits Window {
             }
             LineEdit {
                 enabled: false;
-                text: background_path;
+                text: background-path;
                 placeholder-text: "No background selected";
             }
             Button {
                 text: "Browse...";
                 enabled: !rendering;
                 clicked => {
-                    root.browse_for_background();
+                    root.browse-for-background();
                 }
             }
             Button {
                 text: "Clear";
                 enabled: !rendering;
                 clicked => {
-                    root.background_path = "";
+                    root.background-path = "";
                 }
             }
         }
@@ -152,26 +374,26 @@ export component MainWindow inherits Window {
                 vertical-alignment: center;
             }
             LineEdit {
-                text <=> track_duration_num;
+                text <=> track-duration-num;
                 enabled: !rendering;
                 edited => {
-                    root.update_formatted_duration();
+                    root.update-formatted-duration();
                 }
             }
             ComboBox {
-                model: input_type == InputType.VGM ? ["seconds", "frames", "loops"]
-                     : input_type == InputType.LSDj ? ["seconds", "frames", "loops"]
+                model: input-type == InputType.VGM ? ["seconds", "frames", "loops"]
+                     : input-type == InputType.LSDj ? ["seconds", "frames", "loops"]
                      : ["seconds", "frames"];
-                current-value <=> track_duration_type;
+                current-value <=> track-duration-type;
                 enabled: !rendering;
                 selected => {
-                    root.update_formatted_duration();
+                    root.update-formatted-duration();
                 }
             }
             Text {
-                text: track_duration_formatted;
+                text: track-duration-formatted;
                 vertical-alignment: center;
-                color: track_duration_formatted == "<error>"
+                color: track-duration-formatted == "<error>"
                     ? red
                     : white;
             }
@@ -184,7 +406,7 @@ export component MainWindow inherits Window {
                 vertical-alignment: center;
             }
             SpinBox {
-                value <=> fadeout_duration;
+                value <=> fadeout-duration;
                 minimum: 0;
                 maximum: 1200;
                 enabled: !rendering;
@@ -198,8 +420,8 @@ export component MainWindow inherits Window {
                 vertical-alignment: center;
             }
             SpinBox {
-                value <=> output_width;
-                minimum: 960;
+                value <=> output-width;
+                minimum: 0;
                 maximum: 7680;
                 enabled: !rendering;
             }
@@ -208,8 +430,8 @@ export component MainWindow inherits Window {
                 vertical-alignment: center;
             }
             SpinBox {
-                value <=> output_height;
-                minimum: 540;
+                value <=> output-height;
+                minimum: 0;
                 maximum: 4320;
                 enabled: !rendering;
             }
@@ -217,16 +439,16 @@ export component MainWindow inherits Window {
                 text: "1080p";
                 enabled: !rendering;
                 clicked => {
-                    output_width = 1920;
-                    output_height = 1080;
+                    output-width = 1920;
+                    output-height = 1080;
                 }
             }
             Button {
                 text: "4K";
                 enabled: !rendering;
                 clicked => {
-                    output_width = 3840;
-                    output_height = 2160;
+                    output-width = 3840;
+                    output-height = 2160;
                 }
             }
         }
@@ -239,8 +461,8 @@ export component MainWindow inherits Window {
             }
             ComboBox {
                 model: ["DMG-B", "CGB-0", "CGB-A", "CGB-B", "CGB-C", "CGB-D", "CGB-E", "MGB", "AGB"];
-                current-index <=> selected_model_index;
-                current-value <=> selected_model_text;
+                current-index <=> selected-model-index;
+                current-value <=> selected-model-text;
                 enabled: !rendering;
             }
         }
@@ -253,9 +475,9 @@ export component MainWindow inherits Window {
                 primary: !rendering;
                 clicked => {
                     if (rendering) {
-                        root.cancel_render();
+                        root.cancel-render();
                     } else {
-                        root.start_render();
+                        root.start-render();
                     }
                 }
             }
@@ -271,13 +493,12 @@ export component MainWindow inherits Window {
             }
             Rectangle {
                 height: 6px;
+                clip: true;
 
-                border-width: 1px;
                 border-radius: 3px;
-                border-color: #313131;  // Palette.neutralLighter
                 background: #313131;  // Palette.neutralLighter
 
-                Rectangle {
+                if !root.progress-indeterminate: Rectangle {
                     x: 0;
                     y: 0;
                     height: parent.height;
@@ -292,6 +513,28 @@ export component MainWindow inherits Window {
                         duration: 100ms;
                         easing: ease-in-out;
                     }
+                }
+                if root.progress-indeterminate: Rectangle {
+                    x: (4 * (root.i-progress-anim-tick / 1.4) - 1) * parent.width;
+                    y: 0;
+                    height: parent.height;
+                    width: 0.5 * parent.width;
+
+                    border-width: 1px;
+                    border-radius: 3px;
+                    border-color: root.i-progress-anim-tick > 1.4 ? transparent : #60cdff;  // Palette.themePrimary
+                    background: root.i-progress-anim-tick > 1.4 ? transparent : #60cdff;  // Palette.themePrimary
+                }
+                if root.progress-indeterminate: Rectangle {
+                    x: (3.1666 * ((root.i-progress-anim-tick - 0.6) / 1.4) - 1.5) * parent.width;
+                    y: 0;
+                    height: parent.height;
+                    width: 0.8 * parent.width;
+
+                    border-width: 1px;
+                    border-radius: 3px;
+                    border-color: root.i-progress-anim-tick < 0.6 ? transparent : #60cdff;  // Palette.themePrimary
+                    background: root.i-progress-anim-tick < 0.6 ? transparent : #60cdff;  // Palette.themePrimary
                 }
             }
             HorizontalLayout {

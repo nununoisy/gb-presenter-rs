@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use std::fs;
 use std::path::Path;
 use super::gd3::Gd3;
@@ -35,9 +36,9 @@ macro_rules! u32_fn {
 }
 
 impl Vgm {
-    pub fn new(data: &[u8]) -> Result<Self, String> {
+    pub fn new(data: &[u8]) -> Result<Self> {
         if &data[0..4] != b"Vgm " {
-            return Err("Invalid VGM file".to_string());
+            bail!("Invalid VGM file!");
         }
 
         let mut result = Vgm {
@@ -47,7 +48,10 @@ impl Vgm {
             hit_invalid_command: false
         };
         if result.version() < 0x161 {
-            return Err("VGM version unsupported".to_string());
+            bail!("VGM version unsupported!");
+        }
+        if result.lr35902_clock() == 0 {
+            bail!("VGM does not contain a Game Boy!");
         }
 
         result.iter_ptr = result.start_offset();
@@ -55,8 +59,8 @@ impl Vgm {
         Ok(result)
     }
 
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let data = fs::read(path).map_err(|e| e.to_string())?;
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let data = fs::read(path)?;
         Self::new(&data)
     }
 

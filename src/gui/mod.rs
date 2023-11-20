@@ -2,7 +2,7 @@ mod render_thread;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path;
+use std::fs;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::time::Duration;
@@ -10,12 +10,12 @@ use indicatif::{FormattedDuration, HumanBytes, HumanDuration};
 use native_dialog::{FileDialog, MessageDialog, MessageType};
 use slint;
 use slint::{Color, Model as _};
-use sameboy::{ApuChannel, Model, Revision};
+use sameboy::{Model, Revision};
+use crate::config::Config;
 use crate::gui::render_thread::{RenderThreadMessage, RenderThreadRequest};
 use crate::renderer::gbs::Gbs;
 use crate::renderer::{lsdj, m3u_searcher, vgm};
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
-use crate::video_builder::backgrounds::VideoBackground;
 use crate::visualizer::channel_settings::{ChannelSettingsManager, ChannelSettings};
 
 slint::include_modules!();
@@ -42,32 +42,31 @@ fn slint_int_arr<I, N>(a: I) -> slint::ModelRc<i32>
     slint::ModelRc::new(slint::VecModel::from(int_vec))
 }
 
-fn slint_color_component_arr<I: IntoIterator<Item = raqote::Color>>(a: I) -> slint::ModelRc<slint::ModelRc<i32>> {
+fn slint_color_component_arr<I: IntoIterator<Item = tiny_skia::Color>>(a: I) -> slint::ModelRc<slint::ModelRc<i32>> {
     let color_vecs: Vec<slint::ModelRc<i32>> = a.into_iter()
-        .map(|c| slint::ModelRc::new(slint::VecModel::from(vec![c.r() as i32, c.g() as i32, c.b() as i32])))
+        .map(|c| c.to_color_u8())
+        .map(|c| slint::ModelRc::new(slint::VecModel::from(vec![
+            c.red() as i32, c.green() as i32, c.blue() as i32
+        ])))
         .collect();
     slint::ModelRc::new(slint::VecModel::from(color_vecs))
 }
 
 fn get_default_channel_settings() -> HashMap<(String, String), ChannelSettings> {
-    let manager = ChannelSettingsManager::default();
-    let mut result: HashMap<(String, String), ChannelSettings> = HashMap::new();
-
-    result.insert(("LR35902".to_string(), "Pulse 1".to_string()), manager.settings(ApuChannel::Pulse1));
-    result.insert(("LR35902".to_string(), "Pulse 2".to_string()), manager.settings(ApuChannel::Pulse2));
-    result.insert(("LR35902".to_string(), "Wave".to_string()), manager.settings(ApuChannel::Wave));
-    result.insert(("LR35902".to_string(), "Noise".to_string()), manager.settings(ApuChannel::Noise));
-
-    result
+    ChannelSettingsManager::default().to_map()
 }
 
-fn browse_for_rom_dialog() -> Option<String> {
-    let file = FileDialog::new()
-        .add_filter("All supported formats", &["gb", "gbs", "vgm"])
-        .add_filter("LSDj ROMs", &["gb"])
-        .add_filter("GameBoy Sound Files", &["gbs"])
-        .add_filter("Furnace/DefleMask VGMs", &["vgm"])
-        .show_open_single_file();
+fn browse_for_rom_dialog(for_2x: bool) -> Option<String> {
+    let file = if !for_2x {
+        FileDialog::new()
+            .add_filter("All supported formats", &["gb", "gbs", "vgm"])
+            .add_filter("LSDj ROMs", &["gb"])
+            .add_filter("GameBoy Sound Files", &["gbs"])
+            .add_filter("Furnace/DefleMask VGMs", &["vgm"])
+    } else {
+        FileDialog::new()
+            .add_filter("LSDj ROMs", &["gb"])
+    }.show_open_single_file();
 
     match file {
         Ok(Some(path)) => Some(path.to_str().unwrap().to_string()),
@@ -113,6 +112,28 @@ fn browse_for_video_dialog() -> Option<String> {
     }
 }
 
+fn browse_for_config_import_dialog() -> Option<String> {
+    let file = FileDialog::new()
+        .add_filter("Configuration File", &["toml"])
+        .show_open_single_file();
+
+    match file {
+        Ok(Some(path)) => Some(path.to_str().unwrap().to_string()),
+        _ => None
+    }
+}
+
+fn browse_for_config_export_dialog() -> Option<String> {
+    let file = FileDialog::new()
+        .add_filter("Configuration File", &["toml"])
+        .show_save_single_file();
+
+    match file {
+        Ok(Some(path)) => Some(path.to_str().unwrap().to_string()),
+        _ => None
+    }
+}
+
 fn confirm_prores_export_dialog() -> bool {
     MessageDialog::new()
         .set_title("GBPresenter")
@@ -150,32 +171,134 @@ pub fn run() {
         slint_int_arr([color.red() as i32, color.green() as i32, color.blue() as i32])
     });
 
-    let channel_settings = get_default_channel_settings();
-    for ((chip, channel), settings) in channel_settings.iter() {
-        let configs_model = match chip.as_str() {
-            "LR35902" => main_window.get_config_lr35902(),
-            _ => continue
-        };
-        let mut configs: Vec<ChannelConfig> = configs_model
-            .as_any()
-            .downcast_ref::<slint::VecModel<ChannelConfig>>()
-            .unwrap()
-            .iter()
-            .collect();
+    main_window.set_version(env!("CARGO_PKG_VERSION").into());
+    main_window.set_sameboy_version(sameboy::SAMEBOY_VERSION.into());
+    main_window.set_ffmpeg_version(crate::video_builder::ffmpeg_version().into());
 
-        if let Some(config) = configs.iter_mut().find(|cfg| channel.clone() == cfg.name.to_string()) {
-            config.hidden = settings.hidden();
-            config.colors = slint_color_component_arr(settings.colors());
-        }
-        let new_config_model = slint::ModelRc::new(slint::VecModel::from(configs));
-        match chip.as_str() {
-            "LR35902" => main_window.set_config_lr35902(new_config_model),
-            _ => continue
-        };
+    let options = Rc::new(RefCell::new(RendererOptions::default()));
+    let track_durations: Rc<RefCell<HashMap<u8, Duration>>> = Rc::new(RefCell::new(HashMap::new()));
+
+    {
+        let main_window_weak = main_window.as_weak();
+        let options = options.clone();
+        main_window.on_update_channel_configs(move |write_to_config| {
+            let config = &mut options.borrow_mut().config;
+            let mut channel_settings = config.piano_roll.settings.to_map();
+            for ((chip, channel), settings) in channel_settings.iter_mut() {
+                let configs_model = match chip.as_str() {
+                    "LR35902" => main_window_weak.unwrap().get_config_lr35902(),
+                    "LR35902 (2x)" => main_window_weak.unwrap().get_config_lr35902_2x(),
+                    _ => continue
+                };
+                let mut configs: Vec<ChannelConfig> = configs_model
+                    .as_any()
+                    .downcast_ref::<slint::VecModel<ChannelConfig>>()
+                    .unwrap()
+                    .iter()
+                    .collect();
+                let config = configs.iter_mut()
+                    .find(|cfg| cfg.name.to_string() == channel.clone())
+                    .unwrap();
+
+                if !write_to_config {
+                    config.hidden = settings.hidden();
+                    config.colors = slint_color_component_arr(settings.colors());
+                    // Hack to force Slint to recreate the ChannelConfigRow components
+                    // since the Switch component sometimes ignores the model update.
+                    // It can be removed when Slint adds 2-way bindings to struct elements.
+                    for configs in [Vec::new(), configs] {
+                        let new_config_model = slint::ModelRc::new(slint::VecModel::from(configs));
+                        match chip.as_str() {
+                            "LR35902" => main_window_weak.unwrap().set_config_lr35902(new_config_model),
+                            "LR35902 (2x)" => main_window_weak.unwrap().set_config_lr35902_2x(new_config_model),
+                            _ => continue
+                        };
+                    }
+                } else {
+                    let colors: Vec<tiny_skia::Color> = config.colors
+                        .as_any()
+                        .downcast_ref::<slint::VecModel<slint::ModelRc<i32>>>()
+                        .unwrap()
+                        .iter()
+                        .map(|color_model| {
+                            let mut component_iter = color_model
+                                .as_any()
+                                .downcast_ref::<slint::VecModel<i32>>()
+                                .unwrap()
+                                .iter();
+                            let r = component_iter.next().unwrap() as u8;
+                            let g = component_iter.next().unwrap() as u8;
+                            let b = component_iter.next().unwrap() as u8;
+
+                            tiny_skia::Color::from_rgba8(r, g, b, 0xFF)
+                        })
+                        .collect();
+
+                    settings.set_hidden(config.hidden);
+                    settings.set_colors(&colors);
+                }
+            }
+
+            if write_to_config {
+                config.piano_roll.settings.apply_from_map(&channel_settings);
+            }
+            main_window_weak.unwrap().window().request_redraw();
+        });
+    }
+    main_window.invoke_update_channel_configs(false);
+
+    {
+        let main_window_weak = main_window.as_weak();
+        let options = options.clone();
+        main_window.on_import_config(move || {
+            match browse_for_config_import_dialog() {
+                Some(path) => {
+                    let new_config_str = match fs::read_to_string(path) {
+                        Ok(d) => d,
+                        Err(e) => return display_error_dialog(&e.to_string()),
+                    };
+                    options.borrow_mut().config = match Config::from_toml(&new_config_str) {
+                        Ok(c) => c,
+                        Err(e) => return display_error_dialog(&e.to_string())
+                    };
+                    main_window_weak.unwrap().invoke_update_channel_configs(false);
+                },
+                None => ()
+            }
+        });
     }
 
-    let mut options = Rc::new(RefCell::new(RendererOptions::default()));
-    let mut track_durations: Rc<RefCell<HashMap<u8, Duration>>> = Rc::new(RefCell::new(HashMap::new()));
+    {
+        let main_window_weak = main_window.as_weak();
+        let options = options.clone();
+        main_window.on_export_config(move || {
+            match browse_for_config_export_dialog() {
+                Some(path) => {
+                    main_window_weak.unwrap().invoke_update_channel_configs(true);
+
+                    let config_str = match options.borrow().config.export() {
+                        Ok(c) => c,
+                        Err(e) => return display_error_dialog(&e.to_string())
+                    };
+
+                    match fs::write(&path, config_str) {
+                        Ok(()) => (),
+                        Err(e) => return display_error_dialog(&e.to_string())
+                    }
+                },
+                None => ()
+            }
+        });
+    }
+
+    {
+        let main_window_weak = main_window.as_weak();
+        let options = options.clone();
+        main_window.on_reset_config(move || {
+            options.borrow_mut().config = Config::default();
+            main_window_weak.unwrap().invoke_update_channel_configs(false);
+        });
+    }
 
     let (rt_handle, rt_tx) = {
         let main_window_weak = main_window.as_weak();
@@ -185,7 +308,9 @@ pub fn run() {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(false);
+                        main_window_weak.unwrap().set_progress_indeterminate(false);
                         main_window_weak.unwrap().set_progress_error(true);
+                        main_window_weak.unwrap().set_progress_title("Idle".into());
                         main_window_weak.unwrap().set_progress_status(format!("Render error: {}", e).into());
                     }).unwrap();
                 }
@@ -193,6 +318,7 @@ pub fn run() {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(true);
+                        main_window_weak.unwrap().set_progress_indeterminate(true);
                         main_window_weak.unwrap().set_progress_error(false);
                         main_window_weak.unwrap().set_progress(0.0);
                         main_window_weak.unwrap().set_progress_title("Setting up".into());
@@ -230,6 +356,7 @@ pub fn run() {
 
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
+                        main_window_weak.unwrap().set_progress_indeterminate(false);
                         main_window_weak.unwrap().set_progress(progress as f32);
                         main_window_weak.unwrap().set_progress_title(progress_title.into());
                         main_window_weak.unwrap().set_progress_status(progress_status.into());
@@ -239,6 +366,7 @@ pub fn run() {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(false);
+                        main_window_weak.unwrap().set_progress_indeterminate(false);
                         main_window_weak.unwrap().set_progress(1.0);
                         main_window_weak.unwrap().set_progress_title("Idle".into());
                         main_window_weak.unwrap().set_progress_status("Finished".into());
@@ -248,6 +376,7 @@ pub fn run() {
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
                         main_window_weak.unwrap().set_rendering(false);
+                        main_window_weak.unwrap().set_progress_indeterminate(false);
                         main_window_weak.unwrap().set_progress_title("Idle".into());
                         main_window_weak.unwrap().set_progress_status("Render cancelled".into());
                     }).unwrap();
@@ -260,8 +389,8 @@ pub fn run() {
         let main_window_weak = main_window.as_weak();
         let options = options.clone();
         let track_durations = track_durations.clone();
-        main_window.on_browse_for_rom(move || {
-            match browse_for_rom_dialog() {
+        main_window.on_browse_for_rom(move |for_2x| {
+            match browse_for_rom_dialog(for_2x) {
                 Some(path) => {
                     track_durations.borrow_mut().clear();
 
@@ -270,14 +399,24 @@ pub fn run() {
                     main_window_weak.unwrap().set_input_type(InputType::None);
                     main_window_weak.unwrap().set_input_valid(false);
 
-                    main_window_weak.unwrap().set_selected_track_index(-1);
-                    main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
+                    if !for_2x {
+                        main_window_weak.unwrap().set_track_titles(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
+                        main_window_weak.unwrap().set_selected_track_index(-1);
+                        main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
+                    } else {
+                        debug_assert!(main_window_weak.unwrap().invoke_is_2x(), "Tried to set 2x SAV in non-2x mode");
+
+                        main_window_weak.unwrap().set_track_titles_2x(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
+                        main_window_weak.unwrap().set_selected_track_index_2x(-1);
+                        main_window_weak.unwrap().set_selected_track_text_2x("Select a track...".into());
+                    }
 
                     main_window_weak.unwrap().set_track_duration_num("300".into());
                     main_window_weak.unwrap().set_track_duration_type("seconds".into());
                     main_window_weak.unwrap().invoke_update_formatted_duration();
 
-                    if let Ok(Some(lsdj_version)) = lsdj::get_lsdj_version(&path) {
+                    let lsdj_version = lsdj::get_lsdj_version(&path);
+                    if let Ok(lsdj_version) = lsdj_version {
                         let major = i32::from_str(lsdj_version.split(".").next().unwrap_or_default()).unwrap_or(0);
                         if major < 3 {
                             display_error_dialog("Unsupported LSDj version! Please select a ROM that is v3.x or newer.");
@@ -286,11 +425,35 @@ pub fn run() {
                         main_window_weak.unwrap().set_sav_path("".into());
                         main_window_weak.unwrap().set_input_type(InputType::LSDj);
                         main_window_weak.unwrap().set_input_valid(false);
-                        options.borrow_mut().input = RenderInput::LSDj(path.clone(), "".to_string());
+                        if !for_2x {
+                            if !main_window_weak.unwrap().invoke_is_2x() {
+                                options.borrow_mut().input = RenderInput::LSDj(path.clone(), "".to_string());
+                            } else {
+                                options.borrow_mut().input = RenderInput::LSDj2x(
+                                    path.clone(),
+                                    "".to_string(),
+                                    main_window_weak.unwrap().get_rom_path_2x().to_string(),
+                                    main_window_weak.unwrap().get_sav_path_2x().to_string()
+                                );
+                            }
+                        } else {
+                            options.borrow_mut().input = RenderInput::LSDj2x(
+                                main_window_weak.unwrap().get_rom_path().to_string(),
+                                main_window_weak.unwrap().get_sav_path().to_string(),
+                                path.clone(),
+                                "".to_string()
+                            );
+                        }
                         return;
                     }
 
-                    if let Ok(gbs) = Gbs::open(path.clone()) {
+                    if for_2x {
+                        display_error_dialog(format!("Error opening 2x LSDj ROM!\n{}", lsdj_version.err().unwrap()).as_str());
+                        return;
+                    }
+
+                    let gbs = Gbs::open(path.clone());
+                    if let Ok(gbs) = gbs {
                         println!(
                             "{} - {} - {} ({} tracks, start at {})",
                             gbs.title().unwrap(), gbs.artist().unwrap(), gbs.copyright().unwrap(),
@@ -324,7 +487,8 @@ pub fn run() {
                         return;
                     }
 
-                    if let Ok(vgm_s) = vgm::Vgm::open(path.clone()) {
+                    let vgm_s = vgm::Vgm::open(path.clone());
+                    if let Ok(vgm_s) = vgm_s {
                         let song_title = match vgm_s.gd3_metadata() {
                             Some(gd3) => gd3.title,
                             None => "<?>".to_string()
@@ -337,7 +501,12 @@ pub fn run() {
                         return;
                     }
 
-                    display_error_dialog("Unrecognized input file.");
+                    display_error_dialog(format!(
+                        "Unrecognized input file!\n\nWhile opening as LSDj ROM: {}\nWhile opening as GBS: {}\nWhile opening as VGM: {}",
+                        lsdj_version.err().unwrap(),
+                        gbs.err().unwrap(),
+                        vgm_s.err().unwrap()
+                    ).as_str());
                     main_window_weak.unwrap().set_rom_path("".into());
                     options.borrow_mut().input = RenderInput::None;
                 },
@@ -348,7 +517,7 @@ pub fn run() {
 
     {
         let main_window_weak = main_window.as_weak();
-        let mut options = options.clone();
+        let options = options.clone();
         main_window.on_browse_for_background(move || {
             match browse_for_background_dialog() {
                 Some(path) => {
@@ -364,25 +533,65 @@ pub fn run() {
     {
         let main_window_weak = main_window.as_weak();
         let options = options.clone();
-        main_window.on_browse_for_sav(move || {
+        main_window.on_browse_for_sav(move |for_2x| {
             match browse_for_sav_dialog() {
                 Some(path) => {
                     main_window_weak.unwrap().set_sav_path(path.clone().into());
 
-                    main_window_weak.unwrap().set_selected_track_index(-1);
-                    main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
+                    if !for_2x {
+                        main_window_weak.unwrap().set_track_titles(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
+                        main_window_weak.unwrap().set_selected_track_index(-1);
+                        main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
+                    } else {
+                        debug_assert!(main_window_weak.unwrap().invoke_is_2x(), "Tried to set 2x SAV in non-2x mode");
+
+                        main_window_weak.unwrap().set_track_titles_2x(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
+                        main_window_weak.unwrap().set_selected_track_index_2x(-1);
+                        main_window_weak.unwrap().set_selected_track_text_2x("Select a track...".into());
+                    }
 
                     main_window_weak.unwrap().set_track_duration_num("300".into());
                     main_window_weak.unwrap().set_track_duration_type("seconds".into());
                     main_window_weak.unwrap().invoke_update_formatted_duration();
 
-                    if let Ok(Some(track_titles)) = lsdj::get_track_titles_from_save(path.clone()) {
-                        main_window_weak.unwrap().set_input_type(InputType::LSDj);
-                        main_window_weak.unwrap().set_input_valid(true);
+                    match lsdj::get_track_titles_from_save(path.clone()) {
+                        Ok(track_titles) => {
+                            main_window_weak.unwrap().set_input_type(InputType::LSDj);
+                            main_window_weak.unwrap().set_input_valid(true);
 
-                        options.borrow_mut().input = RenderInput::LSDj(main_window_weak.unwrap().get_rom_path().to_string(), path.clone());
+                            if !for_2x {
+                                if !main_window_weak.unwrap().invoke_is_2x() {
+                                    options.borrow_mut().input = RenderInput::LSDj(
+                                        main_window_weak.unwrap().get_rom_path().to_string(),
+                                        path.clone()
+                                    );
+                                } else {
+                                    options.borrow_mut().input = RenderInput::LSDj2x(
+                                        main_window_weak.unwrap().get_rom_path().to_string(),
+                                        path.clone(),
+                                        main_window_weak.unwrap().get_rom_path_2x().to_string(),
+                                        main_window_weak.unwrap().get_sav_path_2x().to_string(),
+                                    );
+                                }
 
-                        main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
+                                main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
+                            } else {
+                                options.borrow_mut().input = RenderInput::LSDj2x(
+                                    main_window_weak.unwrap().get_rom_path().to_string(),
+                                    main_window_weak.unwrap().get_sav_path().to_string(),
+                                    main_window_weak.unwrap().get_rom_path_2x().to_string(),
+                                    path.clone(),
+                                );
+
+                                main_window_weak.unwrap().set_track_titles_2x(slint_string_arr(track_titles));
+                            }
+                        }
+                        Err(e) => {
+                            main_window_weak.unwrap().set_input_type(InputType::LSDj);
+                            main_window_weak.unwrap().set_input_valid(false);
+
+                            display_error_dialog(&e.to_string());
+                        }
                     }
                 },
                 None => ()
@@ -392,7 +601,45 @@ pub fn run() {
 
     {
         let main_window_weak = main_window.as_weak();
-        let mut options = options.clone();
+        let options = options.clone();
+        main_window.on_set_lsdj_2x(move |is_2x| {
+            match main_window_weak.unwrap().get_input_type() {
+                InputType::LSDj => (),
+                _ => return false
+            }
+
+            let rom_path = main_window_weak.unwrap().get_rom_path().to_string();
+            let sav_path = main_window_weak.unwrap().get_sav_path().to_string();
+
+            if is_2x {
+                options.borrow_mut().input = RenderInput::LSDj2x(
+                    rom_path.clone(),
+                    sav_path.clone(),
+                    rom_path.clone(),
+                    sav_path.clone()
+                );
+                main_window_weak.unwrap().set_rom_path_2x(rom_path.into());
+                main_window_weak.unwrap().set_sav_path_2x(sav_path.into());
+
+                main_window_weak.unwrap().set_track_titles_2x(main_window_weak.unwrap().get_track_titles().clone());
+            } else {
+                options.borrow_mut().input = RenderInput::LSDj(
+                    rom_path.clone(),
+                    sav_path.clone()
+                );
+                main_window_weak.unwrap().set_rom_path_2x("".into());
+                main_window_weak.unwrap().set_sav_path_2x("".into());
+
+                main_window_weak.unwrap().set_track_titles_2x(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
+            }
+
+            is_2x
+        })
+    }
+
+    {
+        let main_window_weak = main_window.as_weak();
+        let options = options.clone();
         main_window.on_update_formatted_duration(move || {
             if main_window_weak.unwrap().get_selected_track_index() == -1 {
                 main_window_weak.unwrap().set_track_duration_formatted("<unknown>".into());
@@ -437,7 +684,7 @@ pub fn run() {
 
     {
         let main_window_weak = main_window.as_weak();
-        let mut options = options.clone();
+        let options = options.clone();
         let rt_tx = rt_tx.clone();
         main_window.on_start_render(move || {
             if !main_window_weak.unwrap().get_input_valid() {
@@ -491,6 +738,17 @@ pub fn run() {
             };
             options.borrow_mut().track_index = track_index;
 
+            if main_window_weak.unwrap().invoke_is_2x() {
+                let track_index_2x = match main_window_weak.unwrap().get_selected_track_index_2x() {
+                    -1 => {
+                        display_error_dialog("Please select a track to play on the 2x Game Boy.");
+                        return;
+                    },
+                    index => index as u8
+                };
+                options.borrow_mut().track_index_2x = track_index_2x;
+            }
+
             options.borrow_mut().fadeout_length = main_window_weak.unwrap().get_fadeout_duration() as u64;
             options.borrow_mut().video_options.resolution_out.0 = main_window_weak.unwrap().get_output_width() as u32;
             options.borrow_mut().video_options.resolution_out.1 = main_window_weak.unwrap().get_output_height() as u32;
@@ -508,47 +766,14 @@ pub fn run() {
                 _ => unreachable!()
             };
 
-            let mut channel_settings = get_default_channel_settings();
-            for ((chip, channel), settings) in channel_settings.iter_mut() {
-                let configs_model = match chip.as_str() {
-                    "LR35902" => main_window_weak.unwrap().get_config_lr35902(),
-                    _ => continue
-                };
-                let config = configs_model
-                    .as_any()
-                    .downcast_ref::<slint::VecModel<ChannelConfig>>()
-                    .unwrap()
-                    .iter()
-                    .find(|cfg| cfg.name.to_string() == channel.clone())
-                    .unwrap();
-
-                let colors: Vec<raqote::Color> = config.colors
-                    .as_any()
-                    .downcast_ref::<slint::VecModel<slint::ModelRc<i32>>>()
-                    .unwrap()
-                    .iter()
-                    .map(|color_model| {
-                        let mut component_iter = color_model
-                            .as_any()
-                            .downcast_ref::<slint::VecModel<i32>>()
-                            .unwrap()
-                            .iter();
-                        let r = component_iter.next().unwrap() as u8;
-                        let g = component_iter.next().unwrap() as u8;
-                        let b = component_iter.next().unwrap() as u8;
-
-                        raqote::Color::new(0xFF, r, g, b)
-                    })
-                    .collect();
-
-                settings.set_hidden(config.hidden);
-                settings.set_colors(&colors);
-            }
-            options.borrow_mut().channel_settings = channel_settings;
+            main_window_weak.unwrap().invoke_update_channel_configs(true);
 
             if main_window_weak.unwrap().get_background_path().is_empty() {
                 options.borrow_mut().video_options.background_path = None;
             }
+
+            // TODO: should this be configurable?
+            options.borrow_mut().auto_lsdj_sync = true;
 
             rt_tx.send(RenderThreadRequest::StartRender(options.borrow().clone())).unwrap();
         });

@@ -3,6 +3,9 @@ extern crate winres;
 
 use slint_build;
 
+// FFmpeg vcpkg line:
+// .\vcpkg\vcpkg.exe install ffmpeg[core,ffmpeg,swresample,swscale,avdevice,x264]:x64-windows --recurse
+
 fn compile(path: &str) {
     let config = slint_build::CompilerConfiguration::new()
         .with_style("fluent-dark".to_string());
