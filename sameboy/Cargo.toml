@@ -11,3 +11,9 @@ name = "sameboy"
 [dependencies]
 sameboy-sys = { path = "../sameboy-sys" }
 encoding_rs = "0.8.32"
+anyhow = "1.0"
+image = { version = "0.24", optional = true }
+
+[features]
+default = ["include-bootroms"]
+include-bootroms = []

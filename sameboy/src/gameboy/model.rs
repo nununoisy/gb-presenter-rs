@@ -19,23 +19,23 @@ pub enum VideoStandard {
 
 #[derive(Copy, Clone, PartialEq)]
 pub enum Model {
-    /// The original "gray brick" GameBoy.
+    /// The original "gray brick" Game Boy.
     DMG(Revision),
-    /// The GameBoy Color.
+    /// The Game Boy Color.
     CGB(Revision),
-    /// The Super GameBoy cartridge.
+    /// The Super Game Boy cartridge.
     /// Includes info about video standard (NTSC/PAL) and
     /// whether it is attached to a virtual Super Famicom.
     SGB(VideoStandard, bool),
-    /// The Super GameBoy 2 cartridge.
+    /// The Super Game Boy 2 cartridge.
     /// Includes info about whether it is attached to a virtual
-    /// Super Famicom. Since it is JP exclusive, it is always NTSC.
+    /// Super Famicom. Since it is Japan exclusive, it is always NTSC.
     SGB2(bool),
-    /// The GameBoy Pocket and GameBoy Light.
+    /// The Game Boy Pocket and GameBoy Light.
     MGB,
-    /// The backwards-compatiblity mode of the GameBoy Advance.
+    /// The backwards-compatiblity mode of the Game Boy Advance.
     AGB,
-    /// The backwards-compatiblity mode of the GameBoy Player.
+    /// The backwards-compatiblity mode of the Game Boy Player.
     GBP
 }
 
@@ -88,12 +88,14 @@ impl From<Model> for GB_model_t {
 }
 
 impl Gameboy {
+    /// Get the emulated Game Boy model.
     pub fn model(&mut self) -> Model {
         unsafe {
             GB_get_model(self.as_mut_ptr()).into()
         }
     }
 
+    /// Helper to get the default filename for the bootrom for this Gameboy's model.
     pub fn preferred_boot_rom(&mut self) -> String {
         match self.model() {
             Model::DMG(_) => "dmg_boot.bin".to_string(),

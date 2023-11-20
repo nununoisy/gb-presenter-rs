@@ -1,9 +1,10 @@
-use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
-use std::rc::Rc;
-use sameboy_sys::{GB_apu_set_sample_callback, GB_channel_t, GB_channel_t_GB_NOISE, GB_channel_t_GB_SQUARE_1, GB_channel_t_GB_SQUARE_2, GB_channel_t_GB_WAVE, GB_gameboy_t, GB_get_apu_wave_table, GB_get_channel_amplitude, GB_get_channel_edge_triggered, GB_get_channel_period, GB_get_channel_volume, GB_is_channel_muted, GB_sample_t, GB_set_channel_muted, GB_set_sample_rate};
+use std::sync::{Arc, Mutex};
+use sameboy_sys::{GB_gameboy_t, GB_sample_t, GB_channel_t, GB_channel_t_GB_NOISE, GB_channel_t_GB_SQUARE_1, GB_channel_t_GB_SQUARE_2, GB_channel_t_GB_WAVE, GB_apu_set_sample_callback, GB_get_apu_wave_table, GB_get_channel_amplitude, GB_get_channel_edge_triggered, GB_get_channel_period, GB_get_channel_volume, GB_is_channel_muted, GB_set_channel_muted, GB_get_sample_rate, GB_set_sample_rate, GB_set_highpass_filter_mode, GB_highpass_mode_t, GB_highpass_mode_t_GB_HIGHPASS_OFF, GB_highpass_mode_t_GB_HIGHPASS_ACCURATE, GB_highpass_mode_t_GB_HIGHPASS_REMOVE_DC_OFFSET, GB_set_interference_volume};
 use super::Gameboy;
+
+pub const AUDIO_BUFFER_INITIAL_SIZE: usize = 4 * 1024 * 1024;
 
 // list(sorted(set(float(max(r, 0.5) * (2**s)) for r in range(0,8) for s in range(0,16))))
 const NOISE_PERIODS: [f64; 68] = [
@@ -49,29 +50,23 @@ impl From<ApuChannel> for GB_channel_t {
 
 pub trait ApuStateReceiver {
     /// Receive an APU channel's state for visualization:
+    /// - Console's ID (for multichip visualizations, e.g. 2xLSDj)
     /// - Amplitude (0-15)
     /// - Frequency (Hz)
     /// - Timbre (arbitrary index, e.g. for selecting a color)
     /// - Balance (0.0-1.0, 0.0=left, 0.5=center, 1.0=right)
-    fn receive(&mut self, channel: ApuChannel, volume: u8, amplitude: u8, frequency: f64, timbre: usize, balance: f64, edge: bool);
+    /// - Edge (if the scope should try to align to this point in time)
+    fn receive(&mut self, id: usize, channel: ApuChannel, volume: u8, amplitude: u8, frequency: f64, timbre: usize, balance: f64, edge: bool);
 }
 
 fn send_pulse_channel_state(gb: &mut Gameboy, pulse2: bool, io_registers: &[u8]) {
     let io_base = if pulse2 { 0x15 } else { 0x10 };
     let nrx1 = io_registers[io_base + 1];
-    // let nrx3 = io_registers[io_base + 3];
-    // let nrx4 = io_registers[io_base + 4];
-    // let nr50 = io_registers[0x24];
     let nr51 = io_registers[0x25];
-    // let pcm12 = io_registers[0x76];  // FIXME: CGB only
+
+    let id = unsafe { (*gb.inner()).id };
 
     let channel = if pulse2 { ApuChannel::Pulse2 } else { ApuChannel::Pulse1 };
-
-    // let mut amplitude = pcm12;
-    // if pulse2 {
-    //     amplitude >>= 4;
-    // }
-    // amplitude &= 0xF;
 
     let mut volume: u8;
     let mut amplitude: u8;
@@ -103,28 +98,22 @@ fn send_pulse_channel_state(gb: &mut Gameboy, pulse2: bool, io_registers: &[u8])
         (false, true) => 1.0,
         (true, true) => 0.5
     };
-    // TODO: skew balance with nr50
 
-    gb.apu_receiver.clone().unwrap().borrow_mut().receive(channel, volume, amplitude, frequency, timbre, balance, edge);
+    unsafe {
+        (*gb.inner_mut()).apu_receiver
+            .clone()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .receive(id, channel, volume, amplitude, frequency, timbre, balance, edge);
+    }
 }
 
 fn send_wave_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
     let nr30 = io_registers[0x1A];
-    // let nr32 = io_registers[0x1C];
-    // let nr33 = io_registers[0x1D];
-    // let nr34 = io_registers[0x1E];
-    // let nr50 = io_registers[0x24];
     let nr51 = io_registers[0x25];
-    // let pcm34 = io_registers[0x77];  // FIXME: CGB only
 
-    // normalize to the scale of the other channels
-    // let volume = match nr32 & 0x60 {
-    //     0b0_00_00000 => 0x0,
-    //     0b0_01_00000 => 0xF,
-    //     0b0_10_00000 => 0x8,
-    //     0b0_11_00000 => 0x4,
-    //     _ => unreachable!()
-    // };
+    let id = unsafe { (*gb.inner()).id };
 
     let mut volume: u8;
     let mut amplitude: u8;
@@ -144,8 +133,6 @@ fn send_wave_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
         edge = true;
     }
 
-    // let period = (((nr34 & 7) as u16) << 8) | (nr33 as u16);
-    // TODO: account for wave pattern
     let frequency = 65536.0 / (2048.0 - (period as f64));
 
     let mut hasher = DefaultHasher::new();
@@ -167,18 +154,22 @@ fn send_wave_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
         (false, true) => 1.0,
         (true, true) => 0.5
     };
-    // TODO: skew balance with nr50
 
-    gb.apu_receiver.clone().unwrap().borrow_mut().receive(ApuChannel::Wave, volume, amplitude, frequency, timbre, balance, edge);
+    unsafe {
+        (*gb.inner_mut()).apu_receiver
+            .clone()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .receive(id, ApuChannel::Wave, volume, amplitude, frequency, timbre, balance, edge);
+    }
 }
 
 fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
     let nr43 = io_registers[0x22];
-    // let nr50 = io_registers[0x24];
     let nr51 = io_registers[0x25];
-    // let pcm34 = io_registers[0x77];  // FIXME: CGB only
 
-    // let mut amplitude = pcm34 >> 4;
+    let id = unsafe { (*gb.inner()).id };
 
     let mut volume: u8;
     let mut amplitude: u8;
@@ -196,8 +187,6 @@ fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
         _ => (clock_divider << clock_shift) as f64
     };
     // Purely for visualizer aesthetic
-    // let frequency = (262144.0 / period).sqrt() / 4.0;
-    // let frequency = 17.351597831287 + (period.log2() / 2.0);
     let lfsr_index = NOISE_PERIODS.iter().rev().position(|p| *p == period).unwrap();
     let frequency = C_0 * (2.0_f64).powf(lfsr_index as f64 / 69.0);
 
@@ -218,31 +207,76 @@ fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
         (false, true) => 1.0,
         (true, true) => 0.5
     };
-    // TODO: skew balance with nr50
 
-    gb.apu_receiver.clone().unwrap().borrow_mut().receive(ApuChannel::Noise, volume, amplitude, frequency, timbre, balance, edge);
+    unsafe {
+        (*gb.inner_mut()).apu_receiver
+            .clone()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .receive(id, ApuChannel::Noise, volume, amplitude, frequency, timbre, balance, edge);
+    }
 }
 
 extern fn apu_sample_callback(gb: *mut GB_gameboy_t, sample: *mut GB_sample_t) {
     unsafe {
-        let gb = Gameboy::mut_from_callback_ptr(gb);
-        gb.audio_buf.push_back((*sample).left);
-        gb.audio_buf.push_back((*sample).right);
+        let mut gb = Gameboy::wrap(gb);
+        (*gb.inner_mut()).audio_buf.push_back((*sample).left);
+        (*gb.inner_mut()).audio_buf.push_back((*sample).right);
 
         let io_registers = gb.get_io_registers();
-        if gb.apu_receiver.is_some() {
-            send_pulse_channel_state(gb, false, &io_registers);
-            send_pulse_channel_state(gb, true, &io_registers);
-            send_wave_channel_state(gb, &io_registers);
-            send_noise_channel_state(gb, &io_registers);
+        if (*gb.inner()).apu_receiver.is_some() {
+            send_pulse_channel_state(&mut gb, false, &io_registers);
+            send_pulse_channel_state(&mut gb, true, &io_registers);
+            send_wave_channel_state(&mut gb, &io_registers);
+            send_noise_channel_state(&mut gb, &io_registers);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub enum HighpassFilterMode {
+    /// No filtering.
+    Off,
+    /// Applies a filter that is similar to the one used on hardware.
+    #[default]
+    Accurate,
+    /// Only removes the DC offset without affecting the waveform.
+    RemoveDCOffset
+}
+
+impl From<GB_highpass_mode_t> for HighpassFilterMode {
+    fn from(value: GB_highpass_mode_t) -> Self {
+        match value {
+            GB_highpass_mode_t_GB_HIGHPASS_OFF => Self::Off,
+            GB_highpass_mode_t_GB_HIGHPASS_ACCURATE => Self::Accurate,
+            GB_highpass_mode_t_GB_HIGHPASS_REMOVE_DC_OFFSET => Self::RemoveDCOffset,
+            _ => unreachable!("Invalid GB_highpass_mode_t value")
+        }
+    }
+}
+
+impl From<HighpassFilterMode> for GB_highpass_mode_t {
+    fn from(value: HighpassFilterMode) -> Self {
+        match value {
+            HighpassFilterMode::Off => GB_highpass_mode_t_GB_HIGHPASS_OFF,
+            HighpassFilterMode::Accurate => GB_highpass_mode_t_GB_HIGHPASS_ACCURATE,
+            HighpassFilterMode::RemoveDCOffset => GB_highpass_mode_t_GB_HIGHPASS_REMOVE_DC_OFFSET
         }
     }
 }
 
 impl Gameboy {
-    pub fn init_audio(&mut self) {
+    pub(crate) unsafe fn init_audio(gb: *mut GB_gameboy_t) {
+        GB_apu_set_sample_callback(gb, Some(apu_sample_callback));
+    }
+}
+
+impl Gameboy {
+    /// Get the audio sample rate.
+    pub fn get_sample_rate(&mut self) -> usize {
         unsafe {
-            GB_apu_set_sample_callback(self.as_mut_ptr(), Some(apu_sample_callback))
+            GB_get_sample_rate(self.as_mut_ptr()) as usize
         }
     }
 
@@ -253,22 +287,36 @@ impl Gameboy {
         }
     }
 
+    /// Configure the high-pass filter.
+    pub fn set_highpass_filter_mode(&mut self, highpass_mode: HighpassFilterMode) {
+        unsafe {
+            GB_set_highpass_filter_mode(self.as_mut_ptr(), highpass_mode.into());
+        }
+    }
+
+    /// Set the audio interference volume.
+    pub fn set_interference_volume(&mut self, interference_volume: f64) {
+        unsafe {
+            GB_set_interference_volume(self.as_mut_ptr(), interference_volume);
+        }
+    }
+
     /// Pop samples from the audio buffer.
     /// If you specify a frame size, then that many samples will be returned each invocation.
     /// If the buffer is underfull, then None is returned.
     /// If no frame size is specified, then the entire buffer is returned.
     pub fn get_audio_samples(&mut self, frame_size: Option<usize>) -> Option<Vec<i16>> {
         match frame_size {
-            Some(frame_size) => {
-                if self.audio_buf.len() < frame_size * 2 {
+            Some(frame_size) => unsafe {
+                if (*self.inner()).audio_buf.len() < frame_size * 2 {
                     return None;
                 }
-                let result: Vec<_> = self.audio_buf.drain(0..(frame_size * 2)).collect();
+                let result: Vec<_> = (*self.inner_mut()).audio_buf.drain(0..(frame_size * 2)).collect();
                 Some(result)
             },
-            None => {
-                let result: Vec<_> = self.audio_buf.clone().into_iter().collect();
-                self.audio_buf.clear();
+            None => unsafe {
+                let result: Vec<_> = (*self.inner_mut()).audio_buf.clone().into_iter().collect();
+                (*self.inner_mut()).audio_buf.clear();
                 Some(result)
             }
         }
@@ -288,7 +336,10 @@ impl Gameboy {
         }
     }
 
-    pub fn set_apu_receiver(&mut self, apu_receiver: Option<Rc<RefCell<dyn ApuStateReceiver>>>) {
-        self.apu_receiver = apu_receiver;
+    /// Set an APU receiver to get updates on the currently playing audio.
+    pub fn set_apu_receiver(&mut self, apu_receiver: Option<Arc<Mutex<dyn ApuStateReceiver>>>) {
+        unsafe {
+            (*self.inner_mut()).apu_receiver = apu_receiver;
+        }
     }
 }

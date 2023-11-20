@@ -5,3 +5,4 @@
 mod gameboy;
 
 pub use gameboy::*;
+pub use sameboy_sys::SAMEBOY_VERSION;

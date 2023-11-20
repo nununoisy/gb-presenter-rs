@@ -1,69 +1,92 @@
+use std::sync::{Arc, Mutex};
 use super::Gameboy;
-use sameboy_sys::{GB_direct_access_t_GB_DIRECT_ACCESS_IO, GB_gameboy_t, GB_safe_read_memory, GB_set_execution_callback, GB_set_read_memory_callback, GB_set_write_memory_callback, GB_write_memory};
+use sameboy_sys::{GB_gameboy_t, GB_set_execution_callback, GB_set_read_memory_callback, GB_set_write_memory_callback, GB_read_memory, GB_safe_read_memory, GB_write_memory, GB_set_open_bus_decay_time};
 
 pub trait MemoryInterceptor {
     /// Intercept a memory read. Return `data` to use default behavior.
-    fn intercept_read(&mut self, addr: u16, data: u8) -> u8 {
+    fn intercept_read(&mut self, _id: usize, _addr: u16, data: u8) -> u8 {
         data
     }
 
-    /// Intercept a memory write. Return `false` to block the default write.
-    fn intercept_write(&mut self, addr: u16, data: u8) -> bool {
+    /// Intercept a memory write. Return `false` to block the write.
+    fn intercept_write(&mut self, _id: usize, _addr: u16, _data: u8) -> bool {
         true
     }
 
     /// Intercept a memory execution.
-    fn intercept_execute(&mut self, addr: u16, opcode: u8) {
+    fn intercept_execute(&mut self, _id: usize, _addr: u16, _opcode: u8) {
         ()
     }
 }
 
 extern fn read_memory_callback(gb: *mut GB_gameboy_t, addr: u16, data: u8) -> u8 {
     unsafe {
-        let gb = Gameboy::mut_from_callback_ptr(gb);
-        if let Some(interceptor) = &mut gb.memory_interceptor {
-            interceptor.intercept_read(addr, data)
-        } else {
-            data
-        }
+        Gameboy::wrap(gb).intercept_read(addr, data)
     }
 }
 
 extern fn write_memory_callback(gb: *mut GB_gameboy_t, addr: u16, data: u8) -> bool {
     unsafe {
-        let gb = Gameboy::mut_from_callback_ptr(gb);
-
-        match addr {
-            0xFF00..=0xFF7F => gb.io_registers_copy[(addr & 0xFF) as usize] = data,
-            _ => ()
-        }
-
-        if let Some(interceptor) = &mut gb.memory_interceptor {
-            interceptor.intercept_write(addr, data)
-        } else {
-            true
-        }
+        Gameboy::wrap(gb).intercept_write(addr, data)
     }
 }
 
 extern fn execution_callback(gb: *mut GB_gameboy_t, addr: u16, opcode: u8) {
     unsafe {
-        let gb = Gameboy::mut_from_callback_ptr(gb);
+        Gameboy::wrap(gb).intercept_execute(addr, opcode)
+    }
+}
 
+impl Gameboy {
+    pub(crate) unsafe fn init_memory(gb: *mut GB_gameboy_t) {
+        GB_set_read_memory_callback(gb, Some(read_memory_callback));
+        GB_set_write_memory_callback(gb, Some(write_memory_callback));
+        GB_set_execution_callback(gb, Some(execution_callback));
+    }
+
+    pub(crate) unsafe fn intercept_read(&mut self, addr: u16, data: u8) -> u8 {
+        if let Some(interceptor) = (*self.inner_mut()).memory_interceptor.clone() {
+            interceptor.lock().unwrap().intercept_read(self.id(), addr, data)
+        } else {
+            data
+        }
+    }
+
+    pub(crate) unsafe fn intercept_write(&mut self, addr: u16, data: u8) -> bool {
         match addr {
-            0x0100 => gb.boot_rom_unmapped = true,
+            0xFF00 ..= 0xFF7F => (*self.inner_mut()).io_registers_copy[(addr & 0xFF) as usize] = data,
             _ => ()
         }
 
-        if let Some(interceptor) = &mut gb.memory_interceptor {
-            interceptor.intercept_execute(addr, opcode);
+        if let Some(interceptor) = (*self.inner_mut()).memory_interceptor.clone() {
+            interceptor.lock().unwrap().intercept_write(self.id(), addr, data)
+        } else {
+            true
+        }
+    }
+
+    pub(crate) unsafe fn intercept_execute(&mut self, addr: u16, opcode: u8) {
+        match addr {
+            0x0100 => (*self.inner_mut()).boot_rom_unmapped = true,
+            _ => ()
+        }
+
+        if let Some(interceptor) = (*self.inner_mut()).memory_interceptor.clone() {
+            interceptor.lock().unwrap().intercept_execute(self.id(), addr, opcode);
         }
     }
 }
 
 impl Gameboy {
-    /// Read a byte from memory.
+    /// Read a byte from memory. May trigger side-effects as a hardware read would.
     pub fn read_memory(&mut self, addr: u16) -> u8 {
+        unsafe {
+            GB_read_memory(self.as_mut_ptr(), addr)
+        }
+    }
+
+    /// Read a byte from memory. Does not trigger side-effects.
+    pub fn read_memory_safe(&mut self, addr: u16) -> u8 {
         unsafe {
             GB_safe_read_memory(self.as_mut_ptr(), addr)
         }
@@ -76,31 +99,26 @@ impl Gameboy {
         }
     }
 
-    pub fn set_memory_interceptor(&mut self, memory_interceptor: Option<Box<dyn MemoryInterceptor>>) {
-        self.memory_interceptor = memory_interceptor;
+    /// Set a memory interceptor to hijack reads/writes/executes.
+    pub fn set_memory_interceptor(&mut self, memory_interceptor: Option<Arc<Mutex<dyn MemoryInterceptor>>>) {
         unsafe {
-            GB_set_read_memory_callback(self.as_mut_ptr(), Some(read_memory_callback));
-            GB_set_write_memory_callback(self.as_mut_ptr(), Some(write_memory_callback));
-            GB_set_execution_callback(self.as_mut_ptr(), Some(execution_callback));
+            (*self.inner_mut()).memory_interceptor = memory_interceptor;
         }
     }
 
-    pub fn get_io_registers(&mut self) -> [u8; 0x80] {
+    /// Get a copy of the last values written to the IO registers.
+    pub fn get_io_registers(&self) -> [u8; 0x80] {
         unsafe {
-            let mut result = [0u8; 0x80];
+            (*self.inner()).io_registers_copy.clone()
+        }
+    }
 
-            // let (io_registers, _bank) = self.direct_access(GB_direct_access_t_GB_DIRECT_ACCESS_IO);
-            result.copy_from_slice(&self.io_registers_copy);
-
-            // Do some extra reads to fill in dynamic registers
-            // for i in 0x10..=0x2F {
-            //     // APU registers
-            //     result[i] = self.read_memory(0xFF00 | (i as u16));
-            // }
-            // result[0x76] = self.read_memory(0xFF76);  // PCM12
-            // result[0x77] = self.read_memory(0xFF77);  // PCM34
-
-            result
+    /// Set the amount of time required for a value to decay to $FF
+    /// on the data bus, in 8MHz clocks. Set to 0 to never have
+    /// values decay like, for example, an EverDrive.
+    pub fn set_open_bus_decay_time(&mut self, decay_time: u32) {
+        unsafe {
+            GB_set_open_bus_decay_time(self.as_mut_ptr(), decay_time);
         }
     }
 }

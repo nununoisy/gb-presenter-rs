@@ -1,5 +1,5 @@
 use sameboy_sys::GB_gbs_info_t;
-use std::slice;
+use std::{ptr, slice};
 use encoding_rs::{CoderResult, SHIFT_JIS};
 
 macro_rules! string_fn {
@@ -16,41 +16,41 @@ macro_rules! string_fn {
 }
 
 pub struct GbsInfo {
-    ptr: *mut GB_gbs_info_t,
+    info: *mut GB_gbs_info_t,
     is_owned: bool
 }
 
 impl GbsInfo {
-    pub fn new() -> Self {
-        unsafe {
-            let inner = Box::new(GB_gbs_info_t {
-                track_count: 0,
-                first_track: 0,
-                title: [0; 33],
-                author: [0; 33],
-                copyright: [0; 33],
-            });
-
-            Self {
-                ptr: Box::into_raw(inner),
-                is_owned: true
-            }
-        }
-    }
-
     pub unsafe fn wrap(ptr: *mut GB_gbs_info_t) -> Self {
         Self {
-            ptr,
+            info: ptr,
             is_owned: false
         }
     }
 
     pub unsafe fn as_ptr(&self) -> *const GB_gbs_info_t {
-        self.ptr as *const _
+        self.info as *const _
     }
 
     pub unsafe fn as_mut_ptr(&mut self) -> *mut GB_gbs_info_t {
-        self.ptr
+        self.info
+    }
+}
+
+impl GbsInfo {
+    pub fn new() -> Self {
+        let inner = Box::new(GB_gbs_info_t {
+            track_count: 0,
+            first_track: 0,
+            title: [0; 33],
+            author: [0; 33],
+            copyright: [0; 33],
+        });
+
+        Self {
+            info: Box::into_raw(inner),
+            is_owned: true
+        }
     }
 
     pub fn track_count(&self) -> u8 {
@@ -95,8 +95,18 @@ impl Drop for GbsInfo {
     fn drop(&mut self) {
         unsafe {
             if self.is_owned {
-                drop(Box::from_raw(self.ptr))
+                drop(Box::from_raw(self.info))
             }
         }
+    }
+}
+
+impl Clone for GbsInfo {
+    fn clone(&self) -> Self {
+        let mut result = Self::new();
+        unsafe {
+            ptr::copy(self.as_ptr(), result.as_mut_ptr(), 1);
+        }
+        result
     }
 }

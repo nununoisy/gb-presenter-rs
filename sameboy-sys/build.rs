@@ -6,9 +6,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::io;
-use std::io::{Read, Write};
+use std::io::{BufWriter, Read, Write};
 
-// cat ..\..\CLionProjects\gb-presenter-rs\sameboy-sys\external\SameBoy\Core\apu.h | \
+// cat gb-presenter-rs\sameboy-sys\external\SameBoy\Core\apu.h | \
 // .\cppp.exe -DGB_DISABLE_TIMEKEEPING -DGB_DISABLE_REWIND -DGB_DISABLE_DEBUGGER -DGB_DISABLE_CHEATS -UGB_INTERNAL
 
 fn run_cppp<P: AsRef<Path>>(input_path: P, output_path: P) {
@@ -32,7 +32,7 @@ fn run_cppp<P: AsRef<Path>>(input_path: P, output_path: P) {
     input_file.read_to_string(&mut input_src).expect("Failed to read input file");
     let input_src = input_src.replace("'", "@SINGLE_QUOTE@");
 
-    let cppp_stdin = cppp.stdin.as_mut().unwrap();
+    let mut cppp_stdin = cppp.stdin.take().unwrap();
     cppp_stdin.write_all(&input_src.into_bytes()).unwrap();
     // Drop to close stdin (send EOF)
     drop(cppp_stdin);
@@ -60,8 +60,6 @@ fn configure_cc_build(build: &mut cc::Build) -> &mut cc::Build {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=rs-wrapper.h");
-
     // Preprocess all header files
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let sameboy_include_dir = out_dir.join("sameboy-include");
@@ -145,12 +143,23 @@ fn main() {
     let bindings = bindgen::Builder::default()
         .clang_args([format!("-I{}", sameboy_include_dir.to_str().unwrap())].iter())
         .header("rs-wrapper.h")
-        .parse_callbacks(Box::new(bindgen::CargoCallbacks))
+        .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()
         .expect("Failed to generate bindings");
 
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Failed to write bindings");
+
+    let mut constants = BufWriter::new(
+        fs::File::create(out_dir.join("constants.rs"))
+            .expect("Failed to open constants for writing")
+    );
+
+    write!(constants, "pub const SAMEBOY_VERSION: &'static str = \"{}\";\n", sameboy_version)
+        .expect("Failed to write constants");
+
+    constants.flush()
+        .expect("Failed to write constants");
 }
 
