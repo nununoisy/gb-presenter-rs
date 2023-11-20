@@ -1,3 +1,4 @@
+#[derive(Clone)]
 pub struct HighPassIIR {
     alpha: f32,
     delta: f32,
