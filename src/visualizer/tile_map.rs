@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use tiny_skia::{BlendMode, FilterQuality, IntRect, Pixmap, PixmapMut, PixmapPaint, PixmapRef, Point, Transform};
 
 #[derive(Clone)]
@@ -9,7 +8,7 @@ pub struct TileMap {
     cols: usize,
     tile_w: usize,
     tile_h: usize,
-    tile_cache: HashMap<char, Pixmap>
+    tile_cache: Vec<Option<Pixmap>>
 }
 
 impl TileMap {
@@ -24,7 +23,7 @@ impl TileMap {
             cols,
             tile_w,
             tile_h,
-            tile_cache: HashMap::new()
+            tile_cache: vec![None; char_map.chars().count()]
         }
     }
 
@@ -37,8 +36,9 @@ impl TileMap {
     }
 
     pub fn tile_pixmap(&mut self, c: char) -> Option<PixmapRef> {
-        if !self.tile_cache.contains_key(&c) {
-            let tile_index = self.char_map.find(c)?;
+        let tile_index = self.char_map.chars().position(|mc| mc == c)?;
+
+        if self.tile_cache.get(tile_index)?.is_none() {
             let col = tile_index % self.cols;
             let row = tile_index / self.cols;
             debug_assert!(row < self.rows);
@@ -49,11 +49,10 @@ impl TileMap {
                 self.tile_w as u32,
                 self.tile_h as u32
             )?;
-            let tile_pixmap = self.image.clone_rect(tile_rect)?;
-            self.tile_cache.insert(c, tile_pixmap);
+            self.tile_cache[tile_index] = self.image.clone_rect(tile_rect);
         }
 
-        Some(self.tile_cache.get(&c)?.as_ref())
+        self.tile_cache[tile_index].as_ref().map(|t| t.as_ref())
     }
 
     pub fn draw_tile(&mut self, dt: &mut PixmapMut<'_>, c: char, pos: Point, opacity: f32) {

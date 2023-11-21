@@ -38,7 +38,8 @@ pub struct Visualizer {
     oscilloscope_states: Vec<OscilloscopeState>,
     piano_roll_states: Vec<PianoRollState>,
 
-    font: TileMap
+    font: TileMap,
+    oscilloscope_divider_cache: Option<Pixmap>
 }
 
 impl Visualizer {
@@ -47,7 +48,7 @@ impl Visualizer {
         let mut piano_roll_states: Vec<PianoRollState> = Vec::with_capacity(channels);
         for _ in 0..channels {
             oscilloscope_states.push(OscilloscopeState::new());
-            piano_roll_states.push(PianoRollState::new(sample_rate as f32, config.speed_multiplier as f32 * 4.0));
+            piano_roll_states.push(PianoRollState::new(sample_rate as f32, config.speed_multiplier as f32 * 4.0, config.starting_octave as f32));
         }
 
         Self {
@@ -59,7 +60,8 @@ impl Visualizer {
             channel_filters: vec![HighPassIIR::new(sample_rate as f32, 300.0); channels],
             oscilloscope_states,
             piano_roll_states,
-            font: TileMap::new(Pixmap::decode_png(FONT_IMAGE).unwrap(), 8, 8, FONT_CHAR_MAP)
+            font: TileMap::new(Pixmap::decode_png(FONT_IMAGE).unwrap(), 8, 8, FONT_CHAR_MAP),
+            oscilloscope_divider_cache: None
         }
     }
 
@@ -78,10 +80,15 @@ impl Visualizer {
             0.0,
             0.0,
             self.canvas.width() as f32,
-            48.0
+            self.config.waveform_height as f32
         ).unwrap();
 
-        self.draw_oscilloscopes(oscilloscopes_pos, 8);
+        let max_channels_per_row = if self.is_vertical_layout() {
+            4
+        } else {
+            8
+        };
+        self.draw_oscilloscopes(oscilloscopes_pos, max_channels_per_row);
 
         let piano_roll_pos = Rect::from_xywh(
             0.0,
@@ -101,7 +108,7 @@ impl Visualizer {
         &mut self.config.settings
     }
 
-    fn is_vertical_layout(&self) -> bool {
+    pub fn is_vertical_layout(&self) -> bool {
         self.canvas.height() > self.canvas.width()
     }
 }

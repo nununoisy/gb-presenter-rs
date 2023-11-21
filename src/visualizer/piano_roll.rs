@@ -47,15 +47,17 @@ pub struct SliceState {
 pub struct PianoRollState {
     pub slices: HeapRb<SliceState>,
     samples_per_frame: f32,
-    taken_samples: f32
+    taken_samples: f32,
+    starting_octave: f32
 }
 
 impl PianoRollState {
-    pub fn new(sample_rate: f32, scroll_speed: f32) -> Self {
+    pub fn new(sample_rate: f32, scroll_speed: f32, starting_octave: f32) -> Self {
         Self {
             slices: HeapRb::new(APU_STATE_BUF_SIZE),
             samples_per_frame: sample_rate / (60.0 * scroll_speed),
-            taken_samples: 0.0
+            taken_samples: 0.0,
+            starting_octave
         }
     }
 
@@ -67,7 +69,7 @@ impl PianoRollState {
         self.taken_samples -= self.samples_per_frame;
 
         let n = 12.0 * (state.frequency / C_0).log2() as f32;
-        let octave = (n / 12.0).floor();
+        let octave = (n / 12.0).floor() + self.starting_octave;
         let note = n.rem_euclid(12.0);
 
         let color = settings.color(&state).unwrap();
@@ -180,11 +182,49 @@ impl Visualizer {
         );
     }
 
-    fn draw_piano_keys(&mut self, pos: Rect, key_w: f32) {
+    fn draw_piano_strings(&mut self, pos: Rect) {
+        let mut white_string_paint = Paint::default();
+        white_string_paint.anti_alias = false;
+        white_string_paint.set_color_rgba8(0x0C, 0x0C, 0x0C, 0xFF);
+
+        let mut black_string_paint = Paint::default();
+        black_string_paint.anti_alias = false;
+        black_string_paint.set_color_rgba8(0x06, 0x06, 0x06, 0xFF);
+
+        let key_count = 12 * self.config.octave_count as usize + 1;
+        let keys_w = self.config.key_thickness * key_count as f32;
+        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (self.config.key_thickness / 2.0) - 1.0;
+
+        for key_i in 0..key_count {
+            let string_pos = Rect::from_xywh(
+                keys_x + self.config.key_thickness * key_i as f32,
+                pos.y(),
+                1.0,
+                pos.height()
+            ).unwrap();
+
+            match get_piano_key(key_i, key_count) {
+                PianoKey::Black => self.canvas.fill_rect(
+                    string_pos,
+                    &black_string_paint,
+                    Transform::identity(),
+                    None
+                ),
+                _ => self.canvas.fill_rect(
+                    string_pos,
+                    &white_string_paint,
+                    Transform::identity(),
+                    None
+                )
+            };
+        }
+    }
+
+    fn draw_piano_keys(&mut self, pos: Rect) {
         let key_count = 12 * self.config.octave_count as usize + 1;
 
-        let keys_w = key_w * key_count as f32;
-        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (key_w / 2.0) - 1.0;
+        let keys_w = self.config.key_thickness * key_count as f32;
+        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (self.config.key_thickness / 2.0) - 1.0;
 
         let mut white_border_paint = Paint::default();
         white_border_paint.anti_alias = false;
@@ -210,9 +250,9 @@ impl Visualizer {
         for key_i in 0..key_count {
             let key_t = get_piano_key(key_i, key_count);
             let key_pos = Rect::from_xywh(
-                keys_x + key_w * key_i as f32,
+                keys_x + self.config.key_thickness * key_i as f32,
                 pos.y(),
-                key_w,
+                self.config.key_thickness,
                 pos.height()
             ).unwrap();
 
@@ -227,20 +267,20 @@ impl Visualizer {
         );
     }
 
-    fn draw_channel_key_spot(&mut self, channel: usize, pos: Rect, key_w: f32) {
+    fn draw_channel_key_spot(&mut self, channel: usize, pos: Rect) {
         let key_count = 12 * self.config.octave_count as usize + 1;
 
         let settings = self.config.settings.settings(channel).unwrap();
         let last_state = self.channel_last_states[channel];
 
         let color = settings.color(&last_state).unwrap();
-        let volume_alpha = match last_state.volume {
-            0.0 => return,
-            v => 0.5 + v / 30.0
-        };
+        if last_state.volume <= 0.0 {
+            return;
+        }
+        let volume_alpha = 0.5 + last_state.volume / 30.0;
 
         let n = 12.0 * (last_state.frequency / C_0).log2() as f32;
-        let octave = (n / 12.0).floor();
+        let octave = (n / 12.0).floor() + self.config.starting_octave as f32;
         let note = n.rem_euclid(12.0);
 
         let lower_alpha_multiplier = if note.ceil() != note.floor() {
@@ -267,19 +307,19 @@ impl Visualizer {
         let upper_alpha = volume_alpha * upper_alpha_multiplier;
         let upper_color = Color::from_rgba(color.red(), color.green(), color.blue(), upper_alpha).unwrap();
 
-        let keys_w = key_w * key_count as f32;
-        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (key_w / 2.0) - 1.0;
+        let keys_w = self.config.key_thickness * key_count as f32;
+        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (self.config.key_thickness / 2.0) - 1.0;
 
         let lower_pos = Rect::from_xywh(
-            keys_x + key_w * (lower_note + 12.0 * lower_octave),
+            keys_x + self.config.key_thickness * (lower_note + 12.0 * lower_octave),
             pos.y(),
-            key_w,
+            self.config.key_thickness,
             pos.height()
         ).unwrap();
         let upper_pos = Rect::from_xywh(
-            keys_x + key_w * (upper_note + 12.0 * upper_octave),
+            keys_x + self.config.key_thickness * (upper_note + 12.0 * upper_octave),
             pos.y(),
-            key_w,
+            self.config.key_thickness,
             pos.height()
         ).unwrap();
 
@@ -287,11 +327,11 @@ impl Visualizer {
         self.draw_piano_key(upper_key, upper_pos, Some(upper_color));
     }
 
-    fn draw_channel_slices(&mut self, pos: Rect, key_w: f32, outline: bool) {
+    fn draw_channel_slices(&mut self, pos: Rect, outline: bool) {
         let key_count = 12 * self.config.octave_count as usize + 1;
 
-        let keys_w = key_w * key_count as f32;
-        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (key_w / 2.0) - 1.0;
+        let keys_w = self.config.key_thickness * key_count as f32;
+        let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (self.config.key_thickness / 2.0) - 1.0;
 
         for channel in 0..self.channels {
             let mut y = pos.y();
@@ -299,19 +339,19 @@ impl Visualizer {
                 if slice.width > 0.0 {
                     let slice_pos: Rect;
                     let mut slice_paint = Paint::default();
-                    slice_paint.anti_alias = slice.width > 1.0;
+                    slice_paint.anti_alias = false;
 
                     if outline {
                         slice_pos = Rect::from_xywh(
-                            keys_x + (key_w * slice.index) - (slice.width / 2.0) - (key_w / 2.0),
-                            y - (key_w / 2.0),
-                            slice.width + key_w,
-                            slice.height + key_w
+                            keys_x + (self.config.key_thickness * slice.index) - (slice.width / 2.0) - (self.config.key_thickness / 2.0),
+                            y - (self.config.key_thickness / 2.0),
+                            slice.width + self.config.key_thickness,
+                            slice.height + self.config.key_thickness
                         ).unwrap();
-                        slice_paint.set_color(Color::BLACK);
+                        slice_paint.set_color(self.config.outline_color);
                     } else {
                         slice_pos = Rect::from_xywh(
-                            keys_x + (key_w * slice.index) - (slice.width / 2.0),
+                            keys_x + (self.config.key_thickness * slice.index) - (slice.width / 2.0),
                             y,
                             slice.width,
                             slice.height
@@ -337,7 +377,6 @@ impl Visualizer {
 
     pub fn draw_piano_roll(&mut self, pos: Rect) {
         let key_length = self.config.key_length;
-        let key_thickness = self.config.key_thickness;
         
         let slices_pos = Rect::from_xywh(
             pos.x(),
@@ -345,8 +384,11 @@ impl Visualizer {
             pos.width(),
             pos.height() - key_length
         ).unwrap();
-        self.draw_channel_slices(slices_pos, key_thickness, true);
-        self.draw_channel_slices(slices_pos, key_thickness, false);
+        self.draw_channel_slices(slices_pos, true);
+        if self.config.draw_piano_strings {
+            self.draw_piano_strings(slices_pos);
+        }
+        self.draw_channel_slices(slices_pos, false);
 
         let piano_keys_pos = Rect::from_xywh(
             pos.x(),
@@ -355,9 +397,9 @@ impl Visualizer {
             key_length
         ).unwrap();
 
-        self.draw_piano_keys(piano_keys_pos, key_thickness);
+        self.draw_piano_keys(piano_keys_pos);
         for channel in 0..self.channels {
-            self.draw_channel_key_spot(channel, piano_keys_pos, key_thickness);
+            self.draw_channel_key_spot(channel, piano_keys_pos);
         }
     }
 }

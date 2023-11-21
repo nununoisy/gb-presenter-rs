@@ -1,20 +1,21 @@
+use std::collections::HashMap;
 use std::iter;
 use ringbuf::{HeapRb, Rb, ring_buffer::RbBase};
-use tiny_skia::{Color, GradientStop, LinearGradient, LineCap, LineJoin, Paint, PathBuilder, Point, Rect, SpreadMode, Stroke, Transform};
+use tiny_skia::{Color, GradientStop, LinearGradient, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Point, Rect, SpreadMode, Stroke, Transform};
 use super::{Visualizer, APU_STATE_BUF_SIZE, ChannelState, ChannelSettings};
 
 pub struct OscilloscopeState {
     amplitudes: HeapRb<f32>,
-    edges: HeapRb<bool>
+    edges: HeapRb<bool>,
+    background_cache: HashMap<[u8; 3], Pixmap>
 }
-
-const DIVIDER_WIDTH: u32 = 5;
 
 impl OscilloscopeState {
     pub fn new() -> Self {
         Self {
             amplitudes: HeapRb::new(APU_STATE_BUF_SIZE),
-            edges: HeapRb::new(APU_STATE_BUF_SIZE)
+            edges: HeapRb::new(APU_STATE_BUF_SIZE),
+            background_cache: HashMap::new()
         }
     }
 
@@ -112,57 +113,77 @@ impl Visualizer {
         }
         let path = pb.finish().unwrap();
 
-        let bg_color = Color::from_rgba(color.red(), color.green(), color.blue(), 0.125).unwrap();
-        let mut bg_paint = Paint::default();
-        bg_paint.anti_alias = false;
-        bg_paint.shader = LinearGradient::new(
-            Point::from_xy(0.0, pos.top()),
-            Point::from_xy(0.0, pos.bottom()),
-            vec![
-                GradientStop::new(0.0, bg_color),
-                GradientStop::new(0.5, Color::from_rgba8(0, 0, 0, 0x20)),
-                GradientStop::new(1.0, bg_color)
-            ],
-            SpreadMode::Pad,
-            Transform::identity()
-        ).unwrap();
+        let background_cache = &mut self.oscilloscope_states.get_mut(channel).unwrap().background_cache;
+        let color_u8 = color.to_color_u8();
+        let cache_key = [color_u8.red(), color_u8.green(), color_u8.blue()];
+        let cache_valid = background_cache.get(&cache_key)
+            .map(|p| p.width() == (pos.width() / 2.0) as u32 && p.height() == pos.height() as u32)
+            .unwrap_or(false);
+        if !cache_valid {
+            let mut cache_pixmap = Pixmap::new((pos.width() / 2.0) as u32, pos.height() as u32).unwrap();
 
-        self.canvas.fill_rect(
-            pos,
-            &Paint::default(),
-            Transform::identity(),
-            None
-        );
-        if last_state.balance <= 0.5 {
-            self.canvas.fill_rect(
-                Rect::from_xywh(pos.x(), pos.y(), pos.width() / 2.0, pos.height()).unwrap(),
+            let bg_color = Color::from_rgba(color.red(), color.green(), color.blue(), 0.125).unwrap();
+            let mut bg_paint = Paint::default();
+            bg_paint.anti_alias = false;
+            bg_paint.shader = LinearGradient::new(
+                Point::from_xy(0.0, 0.0),
+                Point::from_xy(0.0, pos.height()),
+                vec![
+                    GradientStop::new(0.0, bg_color),
+                    GradientStop::new(0.5, Color::from_rgba8(0, 0, 0, 0x20)),
+                    GradientStop::new(1.0, bg_color)
+                ],
+                SpreadMode::Pad,
+                Transform::identity()
+            ).unwrap();
+
+            cache_pixmap.fill_rect(
+                Rect::from_xywh(0.0, 0.0, pos.width() / 2.0, pos.height()).unwrap(),
                 &bg_paint,
+                Transform::identity(),
+                None
+            );
+
+            background_cache.insert(cache_key.clone(), cache_pixmap);
+        }
+        let background = background_cache.get(&cache_key).unwrap().as_ref();
+
+        if last_state.balance <= 0.5 {
+            self.canvas.draw_pixmap(
+                pos.x() as i32,
+                pos.y() as i32,
+                background,
+                &PixmapPaint::default(),
                 Transform::identity(),
                 None
             );
         }
         if last_state.balance >= 0.5 {
-            self.canvas.fill_rect(
-                Rect::from_xywh(pos.x() + (pos.width() / 2.0), pos.y(), pos.width() / 2.0, pos.height()).unwrap(),
-                &bg_paint,
+            self.canvas.draw_pixmap(
+                (pos.x() + (pos.width() / 2.0)) as i32,
+                pos.y() as i32,
+                background,
+                &PixmapPaint::default(),
                 Transform::identity(),
                 None
             );
         }
 
-        let text_padding = (self.font.tile_h() as f32) / 2.0;
-        let chip_name_pos = Point::from_xy(
-            pos.x() + text_padding + (DIVIDER_WIDTH as f32 / 2.0),
-            pos.y() + text_padding
-        );
-        let channel_name_width = (self.font.tile_w() * settings.name().chars().count()) as f32;
-        let channel_name_pos = Point::from_xy(
-            pos.x() + pos.width() - channel_name_width - text_padding - DIVIDER_WIDTH as f32,
-            pos.y() + pos.height() - 3.0 * text_padding
-        );
+        if self.config.draw_text_labels {
+            let text_padding = (self.font.tile_h() as f32) / 2.0;
+            let chip_name_pos = Point::from_xy(
+                pos.x() + text_padding + (self.config.divider_width as f32 / 2.0),
+                pos.y() + text_padding
+            );
+            let channel_name_width = (self.font.tile_w() * settings.name().chars().count()) as f32;
+            let channel_name_pos = Point::from_xy(
+                pos.x() + pos.width() - channel_name_width - text_padding - self.config.divider_width as f32,
+                pos.y() + pos.height() - 3.0 * text_padding
+            );
 
-        self.font.draw_text(&mut self.canvas.as_mut(), &settings.chip(), chip_name_pos, 0.2);
-        self.font.draw_text(&mut self.canvas.as_mut(), &settings.name(), channel_name_pos, 0.2);
+            self.font.draw_text(&mut self.canvas.as_mut(), &settings.chip(), chip_name_pos, 0.2);
+            self.font.draw_text(&mut self.canvas.as_mut(), &settings.name(), channel_name_pos, 0.2);
+        }
 
         let glow_color = Color::from_rgba(color.red(), color.green(), color.blue(), 0.25).unwrap();
         let mut glow_paint = Paint::default();
@@ -173,7 +194,7 @@ impl Visualizer {
             &path,
             &glow_paint,
             &Stroke {
-                width: 3.0,
+                width: self.config.oscilloscope_glow_thickness,
                 miter_limit: 2.0,
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Bevel,
@@ -191,7 +212,7 @@ impl Visualizer {
             &path,
             &line_paint,
             &Stroke {
-                width: 1.0,
+                width: self.config.oscilloscope_line_thickness,
                 miter_limit: 1.0,
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Bevel,
@@ -203,29 +224,58 @@ impl Visualizer {
     }
 
     fn draw_oscilloscope_dividers(&mut self, pos: Rect, channel_width: f32) {
-        let mut divider_paint = Paint::default();
-        divider_paint.anti_alias = false;
-        divider_paint.shader = LinearGradient::new(
-            Point::from_xy(pos.x(), 0.0),
-            Point::from_xy(pos.x() + (channel_width / 2.0), 0.0),
-            vec![
-                GradientStop::new(0.0, Color::BLACK),
-                GradientStop::new((2.0 * DIVIDER_WIDTH as f32) / channel_width, Color::TRANSPARENT),
-                GradientStop::new(1.0, Color::TRANSPARENT)
-            ],
-            SpreadMode::Reflect,
-            Transform::identity()
-        ).unwrap();
+        let cache_valid = self.oscilloscope_divider_cache
+            .as_ref()
+            .map(|p| p.width() == channel_width as u32 && p.height() == pos.height() as u32)
+            .unwrap_or(false);
 
-        self.canvas.fill_rect(
-            pos,
-            &divider_paint,
-            Transform::identity(),
-            None
-        );
+        if !cache_valid {
+            let mut divider_pixmap = Pixmap::new(channel_width as u32, pos.height() as u32).unwrap();
+
+            let mut divider_paint = Paint::default();
+            divider_paint.anti_alias = false;
+            divider_paint.shader = LinearGradient::new(
+                Point::from_xy(pos.x(), 0.0),
+                Point::from_xy(pos.x() + (channel_width / 2.0), 0.0),
+                vec![
+                    GradientStop::new(0.0, self.config.divider_color),
+                    GradientStop::new((2.0 * self.config.divider_width as f32) / channel_width, Color::TRANSPARENT),
+                    GradientStop::new(1.0, Color::TRANSPARENT)
+                ],
+                SpreadMode::Reflect,
+                Transform::identity()
+            ).unwrap();
+
+            divider_pixmap.fill_rect(
+                Rect::from_xywh(0.0, 0.0, channel_width, pos.height()).unwrap(),
+                &divider_paint,
+                Transform::identity(),
+                None
+            );
+
+            self.oscilloscope_divider_cache = Some(divider_pixmap);
+        }
+
+        for i in 0..(pos.width() / channel_width) as i32 {
+            self.canvas.draw_pixmap(
+                (pos.x() + (channel_width * i as f32)) as i32,
+                pos.y() as i32,
+                self.oscilloscope_divider_cache.as_ref().unwrap().as_ref(),
+                &PixmapPaint::default(),
+                Transform::identity(),
+                None
+            );
+        }
     }
 
     pub fn draw_oscilloscopes(&mut self, pos: Rect, max_channels_per_row: usize) {
+        self.canvas.fill_rect(
+            pos,
+            &Paint::default(),
+            Transform::identity(),
+            None
+        );
+
         let channel_indices: Vec<usize> = (0..self.channels)
             .filter(|&i| !self.config.settings.settings(i).unwrap().hidden())
             .collect();
