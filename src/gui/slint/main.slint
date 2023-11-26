@@ -102,8 +102,9 @@ export component MainWindow inherits Window {
                         spacing: 8px;
                         
                         Image {
-                            width: 24px;
+                            width: 32px;
                             source: @image-url("gb-presenter-icon.png");
+                            image-rendering: pixelated;
                         }
                         Text {
                             text: "GBPresenter v" + root.version;
@@ -122,6 +123,7 @@ export component MainWindow inherits Window {
                         Image {
                             width: 16px;
                             source: @image-url("sameboy-icon.png");
+                            image-rendering: pixelated;
                         }
                         Text {
                             text: "SameBoy v" + root.sameboy-version;

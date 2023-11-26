@@ -16,7 +16,6 @@ use crate::gui::render_thread::{RenderThreadMessage, RenderThreadRequest};
 use crate::renderer::gbs::Gbs;
 use crate::renderer::{lsdj, m3u_searcher, vgm};
 use crate::renderer::render_options::{RendererOptions, RenderInput, StopCondition};
-use crate::visualizer::channel_settings::{ChannelSettingsManager, ChannelSettings};
 
 slint::include_modules!();
 
@@ -50,10 +49,6 @@ fn slint_color_component_arr<I: IntoIterator<Item = tiny_skia::Color>>(a: I) -> 
         ])))
         .collect();
     slint::ModelRc::new(slint::VecModel::from(color_vecs))
-}
-
-fn get_default_channel_settings() -> HashMap<(String, String), ChannelSettings> {
-    ChannelSettingsManager::default().to_map()
 }
 
 fn browse_for_rom_dialog(for_2x: bool) -> Option<String> {
@@ -338,12 +333,13 @@ pub fn run() {
                         None => "Unknown time".to_string()
                     };
 
-                    let (progress, progress_title) = match p.expected_duration_frames {
-                        Some(exp_dur_frames) => {
-                            let progress = p.frame as f64 / exp_dur_frames as f64;
+                    let (progress, progress_title) = match (p.frame, p.expected_duration_frames) {
+                        (frame, Some(exp_dur_frames)) => {
+                            let progress = frame as f64 / exp_dur_frames as f64;
                             (progress, "Rendering".to_string())
                         },
-                        None => (0.0, "Initializing".to_string()),
+                        (0, None) => (0.0, "Initializing".to_string()),
+                        (_, None) => (0.0, "Rendering to loop point".to_string()),
                     };
                     let progress_status = format!(
                         "{}%, {} FPS, encoded {}/{} ({}), {} remaining",
@@ -356,7 +352,7 @@ pub fn run() {
 
                     let main_window_weak = main_window_weak.clone();
                     slint::invoke_from_event_loop(move || {
-                        main_window_weak.unwrap().set_progress_indeterminate(false);
+                        main_window_weak.unwrap().set_progress_indeterminate(p.expected_duration_frames.is_none());
                         main_window_weak.unwrap().set_progress(progress as f32);
                         main_window_weak.unwrap().set_progress_title(progress_title.into());
                         main_window_weak.unwrap().set_progress_status(progress_status.into());
@@ -750,8 +746,10 @@ pub fn run() {
             }
 
             options.borrow_mut().fadeout_length = main_window_weak.unwrap().get_fadeout_duration() as u64;
-            options.borrow_mut().video_options.resolution_out.0 = main_window_weak.unwrap().get_output_width() as u32;
-            options.borrow_mut().video_options.resolution_out.1 = main_window_weak.unwrap().get_output_height() as u32;
+            options.borrow_mut().set_resolution_smart(
+                main_window_weak.unwrap().get_output_width() as u32,
+                main_window_weak.unwrap().get_output_height() as u32
+            );
 
             options.borrow_mut().model = match main_window_weak.unwrap().get_selected_model_text().to_string().as_str() {
                 "DMG-B" => Model::DMG(Revision::RevB),
@@ -772,7 +770,6 @@ pub fn run() {
                 options.borrow_mut().video_options.background_path = None;
             }
 
-            // TODO: should this be configurable?
             options.borrow_mut().auto_lsdj_sync = true;
 
             rt_tx.send(RenderThreadRequest::StartRender(options.borrow().clone())).unwrap();

@@ -1,11 +1,9 @@
 use anyhow::bail;
-use std::collections::HashMap;
 use std::str::FromStr;
 use std::ffi::OsStr;
 use sameboy::{Model, Revision};
 use crate::config::Config;
 use crate::video_builder::video_options::VideoOptions;
-use crate::visualizer::channel_settings::ChannelSettings;
 
 pub const FRAME_RATE: i32 = 60;
 

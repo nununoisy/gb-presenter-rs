@@ -19,7 +19,7 @@ impl OscilloscopeState {
         }
     }
 
-    pub fn consume(&mut self, state: ChannelState, _settings: &ChannelSettings) {
+    pub fn consume(&mut self, state: &ChannelState, _settings: &ChannelSettings) {
         self.amplitudes.push_overwrite(state.amplitude);
         self.edges.push_overwrite(state.edge);
     }
@@ -194,7 +194,7 @@ impl Visualizer {
             &path,
             &glow_paint,
             &Stroke {
-                width: self.config.oscilloscope_glow_thickness,
+                width: self.config.oscilloscope_glow_thickness * 2.0,
                 miter_limit: 2.0,
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Bevel,
@@ -212,8 +212,8 @@ impl Visualizer {
             &path,
             &line_paint,
             &Stroke {
-                width: self.config.oscilloscope_line_thickness,
-                miter_limit: 1.0,
+                width: self.config.oscilloscope_line_thickness * 2.0,
+                miter_limit: 2.0,
                 line_cap: LineCap::Butt,
                 line_join: LineJoin::Bevel,
                 dash: None
@@ -226,11 +226,11 @@ impl Visualizer {
     fn draw_oscilloscope_dividers(&mut self, pos: Rect, channel_width: f32) {
         let cache_valid = self.oscilloscope_divider_cache
             .as_ref()
-            .map(|p| p.width() == channel_width as u32 && p.height() == pos.height() as u32)
+            .map(|(w, p)| p.width() == pos.width() as u32 && p.height() == pos.height() as u32 && *w == channel_width)
             .unwrap_or(false);
 
         if !cache_valid {
-            let mut divider_pixmap = Pixmap::new(channel_width as u32, pos.height() as u32).unwrap();
+            let mut divider_pixmap = Pixmap::new(pos.width() as u32, pos.height() as u32).unwrap();
 
             let mut divider_paint = Paint::default();
             divider_paint.anti_alias = false;
@@ -247,25 +247,23 @@ impl Visualizer {
             ).unwrap();
 
             divider_pixmap.fill_rect(
-                Rect::from_xywh(0.0, 0.0, channel_width, pos.height()).unwrap(),
+                Rect::from_xywh(0.0, 0.0, pos.width(), pos.height()).unwrap(),
                 &divider_paint,
                 Transform::identity(),
                 None
             );
 
-            self.oscilloscope_divider_cache = Some(divider_pixmap);
+            self.oscilloscope_divider_cache = Some((channel_width, divider_pixmap));
         }
 
-        for i in 0..(pos.width() / channel_width) as i32 {
-            self.canvas.draw_pixmap(
-                (pos.x() + (channel_width * i as f32)) as i32,
-                pos.y() as i32,
-                self.oscilloscope_divider_cache.as_ref().unwrap().as_ref(),
-                &PixmapPaint::default(),
-                Transform::identity(),
-                None
-            );
-        }
+        self.canvas.draw_pixmap(
+            pos.x() as i32,
+            pos.y() as i32,
+            self.oscilloscope_divider_cache.as_ref().unwrap().1.as_ref(),
+            &PixmapPaint::default(),
+            Transform::identity(),
+            None
+        );
     }
 
     pub fn draw_oscilloscopes(&mut self, pos: Rect, max_channels_per_row: usize) {
@@ -282,9 +280,9 @@ impl Visualizer {
 
         for row in channel_indices.chunks(max_channels_per_row) {
             let channel_width = pos.width() / row.len() as f32;
-            for &channel in row {
+            for (i, &channel) in row.iter().enumerate() {
                 let channel_pos = Rect::from_xywh(
-                    pos.x() + (channel_width * channel as f32),
+                    pos.x() + (channel_width * i as f32),
                     pos.y(),
                     channel_width,
                     pos.height()

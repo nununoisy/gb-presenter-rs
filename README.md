@@ -1,10 +1,10 @@
 <p align="center">
-    <img src="gb-presenter-icon-xl.png" />
+    <img src="assets/gb-presenter-icon-xl.png" />
 </p>
 
 # GBPresenter
 
-GBPresenter is a tool I wrote to generate visualizations of GameBoy
+GBPresenter is a tool I wrote to generate visualizations of Game Boy
 chiptunes, based on [SameBoy][sameboy], [FFmpeg][ffmpeg],
 and [Slint][slint].
 The visualization design is essentially a port of the piano roll from
@@ -12,6 +12,9 @@ The visualization design is essentially a port of the piano roll from
 It supports playing music from GBS files, VGM files exported from
 [Furnace][furnace]/[DefleMask][deflemask], and from save files for most
 versions of [Little Sound Dj][lsdj].
+
+![Slint logo](assets/MadeWithSlint-logo-light.svg#gh-light-mode-only)
+![Slint logo](assets/MadeWithSlint-logo-dark.svg#gh-dark-mode-only)
 
 ## Functionality
 
@@ -28,18 +31,18 @@ and feeds it to FFmpeg to be encoded as a video.
 - Built on SameBoy for extremely accurate sound emulation.
     - It usually sounds just as good as a recording of a DMG with a ProSound mod.
 - Outputs a video file:
-    - Customizable resolution (default 1080p) at 59.97 FPS (the GameBoy's true framerate).
+    - Customizable resolution (default 1080p) at 59.97 FPS (the Game Boy's true framerate).
     - MPEG-4 container with fast-start (`moov` atom at beginning of file).
     - Matroska (MKV) and QuickTime (MOV) containers are also supported.
-    - yuv420p H.264 video stream encoded with libx264, crf: 16.
+    - yuv420p H.264 video stream encoded with libx264, crf: 20.
     - If using QuickTime, ProRes 4444 streams encoded with prores_ks are also supported.
     - Stereo AAC LC audio stream encoded with FFmpeg's aac encoder, bitrate: 384k.
 - Video files are suitable for direct upload to most websites:
     - Outputs the recommended format for YouTube, Twitter, and Discord (w/ Nitro).
     - Typical exports (1080p, up to 5 minutes) are usually below 100MB.
 - Loop detection for LSDj songs.
-    - Supported on LSDj 3.x and up.
-    - Support for `HFF` detection is planned.
+    - Supported on stable versions of LSDj starting from 3.x.
+    - Support for automatically stopping when `HFF` is encountered.
     - Support for loop detection for tracker-exported GBS files is planned.
 - Loop detection for VGM files is supported.
 

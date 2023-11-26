@@ -1,6 +1,5 @@
 use anyhow::{Result, ensure};
 use std::iter::zip;
-use std::str::FromStr;
 use std::time::Duration;
 use ffmpeg_next::{Dictionary, frame, Packet};
 use crate::video_builder::ffmpeg_hacks::ffmpeg_context_bytes_written;
@@ -41,14 +40,13 @@ fn fast_background_blit(fg: &mut frame::Video, bg: &frame::Video) {
         let pre_blit_bg_arr = [bg_arr[0] / 2, bg_arr[1] / 2, bg_arr[2] / 2, 255];
         let bg_color = u32::from_le_bytes(pre_blit_bg_arr) & (RB_MASK | G_MASK);
 
-        let mut rb = bg_color & RB_MASK;
-        let mut g = bg_color & G_MASK;
         let a = fg_arr[3] as u32;
+        let rb1 = (0x100 - a).wrapping_mul(bg_color & RB_MASK) >> 8;
+        let rb2 = a.wrapping_mul(fg_color & RB_MASK) >> 8;
+        let g1 = (0x100 - a).wrapping_mul(bg_color & G_MASK) >> 8;
+        let g2 = a.wrapping_mul(fg_color & G_MASK) >> 8;
 
-        rb += (((fg_color & RB_MASK) - rb) * a) >> 8;
-        g += (((fg_color & G_MASK) - g) * a) >> 8;
-
-        let o_color = (a << 24) | (rb & RB_MASK) | (g & G_MASK);
+        let o_color = (a << 24) | ((rb1 | rb2) & RB_MASK) | ((g1 | g2) & G_MASK);
         fg_arr.copy_from_slice(&o_color.to_le_bytes());
     }
 }

@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use ringbuf::{HeapRb, Rb, ring_buffer::RbBase};
 use render_options::{RendererOptions, RenderInput};
 use sameboy::{Gameboy, JoypadButton};
-use crate::config::PianoRollConfig;
 use crate::renderer::lsdj::EndDetector;
 use crate::renderer::render_options::StopCondition;
 use crate::video_builder;
@@ -209,6 +208,11 @@ impl Renderer {
         {
             let mut viz = self.viz.lock().unwrap();
 
+            let all_channels_hidden = (0..8).all(|i| viz.settings_manager().settings(i).unwrap().hidden());
+            if all_channels_hidden {
+                bail!("At least one channel must be visible!");
+            }
+
             if !self.is_2x() {
                 for channel in 4..8 {
                     viz.settings_manager_mut()
@@ -218,6 +222,8 @@ impl Renderer {
                 }
             }
         }
+
+        self.end_detector.lock().unwrap().reset();
 
         self.vb.start_encoding()?;
         self.encode_start = Instant::now();
@@ -383,8 +389,8 @@ impl Renderer {
 
     pub fn song_position(&mut self) -> Option<SongPosition> {
         match &self.options.input {
-            RenderInput::LSDj(_, _) => lsdj::get_song_position(&mut self.gb, self.end_detector.clone()),
-            RenderInput::LSDj2x(_, _, _, _) => lsdj::get_song_position(&mut self.gb, self.end_detector.clone()),
+            RenderInput::LSDj(_, _) => lsdj::get_song_position(&mut self.gb, &self.end_detector),
+            RenderInput::LSDj2x(_, _, _, _) => lsdj::get_song_position(&mut self.gb, &self.end_detector),
             _ => None
         }
     }

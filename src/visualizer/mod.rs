@@ -29,7 +29,6 @@ pub struct ChannelState {
 
 pub struct Visualizer {
     channels: usize,
-    sample_rate: u32,
     canvas: Pixmap,
     config: PianoRollConfig,
 
@@ -39,7 +38,7 @@ pub struct Visualizer {
     piano_roll_states: Vec<PianoRollState>,
 
     font: TileMap,
-    oscilloscope_divider_cache: Option<Pixmap>
+    oscilloscope_divider_cache: Option<(f32, Pixmap)>
 }
 
 impl Visualizer {
@@ -53,7 +52,6 @@ impl Visualizer {
 
         Self {
             channels,
-            sample_rate,
             canvas: Pixmap::new(width, height).unwrap(),
             config,
             channel_last_states: vec![ChannelState::default(); channels],
@@ -153,8 +151,8 @@ impl ApuStateReceiver for Visualizer {
             edge,
         };
 
+        self.oscilloscope_states[channel].consume(&state, settings);
+        self.piano_roll_states[channel].consume(&state, settings);
         self.channel_last_states[channel] = state;
-        self.oscilloscope_states[channel].consume(state, settings);
-        self.piano_roll_states[channel].consume(state, settings);
     }
 }

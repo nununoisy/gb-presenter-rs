@@ -1,8 +1,12 @@
 use clap::{arg, Arg, ArgAction, value_parser, Command};
+use csscolorparser::Color as CssColor;
 use std::path::PathBuf;
 use indicatif::{FormattedDuration, HumanBytes, ProgressBar, ProgressStyle};
 use std::fmt::Write;
+use std::fs;
 use sameboy::{Model, Revision};
+use tiny_skia::Color;
+use crate::config::Config;
 use crate::renderer::{Renderer, render_options::{RendererOptions, RenderInput, StopCondition}, vgm};
 
 fn model_value_parser(s: &str) -> Result<Model, String> {
@@ -19,6 +23,19 @@ fn model_value_parser(s: &str) -> Result<Model, String> {
         _ => Err("Invalid model string".to_string())
     }
 }
+
+fn color_value_parser(s: &str) -> Result<Color, String> {
+    let parsed_color = s.parse::<CssColor>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(Color::from_rgba(
+        parsed_color.r as f32,
+        parsed_color.g as f32,
+        parsed_color.b as f32,
+        parsed_color.a as f32
+    ).unwrap())
+}
+
 
 fn codec_option_value_parser(s: &str) -> Result<(String, String), String> {
     let (key, value) = s.split_once('=')
@@ -78,6 +95,19 @@ fn get_renderer_options() -> RendererOptions {
             .required(false)
             .value_parser(model_value_parser)
             .default_value("CGB-E"))
+        .arg(arg!(-k --"channel-color" "Set the colors for a channel.")
+            .required(false)
+            .num_args(3..=18)
+            .value_names(&["CHIP", "CHANNEL", "COLORS..."])
+            .action(ArgAction::Append))
+        .arg(arg!(-H --"hide-channel" "Hide a channel from the visualization.")
+            .required(false)
+            .num_args(2)
+            .value_names(&["CHIP", "CHANNEL"])
+            .action(ArgAction::Append))
+        .arg(arg!(-i --"import-config" <CONFIGFILE> "Import configuration from a RusticNES TOML file.")
+            .value_parser(value_parser!(PathBuf))
+            .required(false))
         .arg(arg!(-g --"gbs" <GBS> "GBS file to render")
             .required(false)
             .value_parser(value_parser!(PathBuf)))
@@ -179,6 +209,53 @@ fn get_renderer_options() -> RendererOptions {
         }
     }
 
+    options.config = match matches.get_one::<PathBuf>("import-config") {
+        Some(config_path) => {
+            let config = fs::read_to_string(config_path).expect("Failed to read config file!");
+            Config::from_toml(&config).expect("Failed to parse config file!")
+        },
+        None => Config::default()
+    };
+
+    if let Some(channel_settings) = matches.get_occurrences::<String>("channel-color") {
+        for channel_setting_parts in channel_settings.map(Iterator::collect::<Vec<&String>>) {
+            let chip = channel_setting_parts
+                .get(0)
+                .expect("Channel setting must have chip name");
+            let channel = channel_setting_parts
+                .get(1)
+                .expect("Channel setting must have channel name");
+
+            let setting = options.config.piano_roll.settings.settings_mut_by_name(chip.as_str(), channel.as_str())
+                .expect(format!("Unknown chip/channel specified: {} {}", chip, channel).as_str());
+
+            if setting.colors().len() != channel_setting_parts.len() - 2 {
+                panic!("Wrong number of colors specified for chip/channel {} {}: expected {} colors", chip, channel, setting.colors().len());
+            }
+
+            let new_colors: Vec<Color> = channel_setting_parts.iter()
+                .skip(2)
+                .map(|c| color_value_parser(c.as_str()).expect("Invalid color"))
+                .collect();
+            setting.set_colors(&new_colors);
+        }
+
+        if let Some(hidden_channels) = matches.get_occurrences::<String>("hide-channel") {
+            for hidden_channel_parts in hidden_channels.map(Iterator::collect::<Vec<&String>>) {
+                let chip = hidden_channel_parts
+                    .get(0)
+                    .expect("Hidden channel must have chip name");
+                let channel = hidden_channel_parts
+                    .get(1)
+                    .expect("Hidden channel must have channel name");
+
+                options.config.piano_roll.settings.settings_mut_by_name(chip.as_str(), channel.as_str())
+                    .expect(format!("Unknown chip/channel specified: {} {}", chip, channel).as_str())
+                    .set_hidden(true);
+            }
+        }
+    }
+
     options
 }
 
@@ -211,7 +288,7 @@ pub fn run() {
         let current_video_size = HumanBytes(renderer.encoded_size() as u64);
         let current_encode_rate = renderer.encode_rate();
         let song_position = match renderer.song_position() {
-            Some(position) => format!("{}", position),
+            Some(position) => position.to_string(),
             None => "?".to_string()
         };
         let expected_video_duration = match renderer.expected_duration() {
@@ -224,7 +301,8 @@ pub fn run() {
             None => "?".to_string()
         };
 
-        let mut message: String = "VID]".to_string();
+        let mut message = String::with_capacity(300);
+        write!(message, "VID]").unwrap();
         write!(message, " enc_time={}/{}", current_video_duration, expected_video_duration).unwrap();
         write!(message, " size={}", current_video_size).unwrap();
         write!(message, " rate={:.2}", current_encode_rate).unwrap();

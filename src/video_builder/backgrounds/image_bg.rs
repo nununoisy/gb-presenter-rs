@@ -1,5 +1,5 @@
 use std::path::Path;
-use ffmpeg_next::{format, frame, software};
+use ffmpeg_next::{format, frame};
 use image;
 use crate::video_builder::backgrounds::VideoBackground;
 
@@ -13,17 +13,8 @@ impl ImageBackground {
         };
         let img = image::imageops::resize(&dyn_img.to_rgba8(), w, h, image::imageops::Gaussian);
 
-        let mut img_frame = frame::Video::new(format::Pixel::RGBA, w, h);
-        img_frame.data_mut(0).copy_from_slice(&img.into_raw());
-
-        let mut frame = frame::Video::new(format::Pixel::BGRA, w, h);
-
-        let mut swc_ctx = software::converter(
-            (w, h),
-            format::Pixel::RGBA,
-            format::Pixel::BGRA
-        ).unwrap();
-        swc_ctx.run(&img_frame, &mut frame).unwrap();
+        let mut frame = frame::Video::new(format::Pixel::RGBA, w, h);
+        frame.data_mut(0).copy_from_slice(&img.into_raw());
 
         Some(Self(frame))
     }

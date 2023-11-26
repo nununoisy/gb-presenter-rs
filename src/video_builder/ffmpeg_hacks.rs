@@ -1,8 +1,7 @@
 use anyhow::{Result, anyhow};
-use std::ffi::{c_int, CString};
-use std::mem;
-use ffmpeg_next::{ChannelLayout, codec, Codec, Error, filter, format, StreamMut};
-use ffmpeg_sys_next::{AV_CODEC_CAP_VARIABLE_FRAME_SIZE, av_get_sample_fmt, AV_OPT_SEARCH_CHILDREN, av_opt_set_bin, avcodec_alloc_context3, avcodec_parameters_from_context, avcodec_parameters_to_context, AVSampleFormat, av_version_info};
+use std::ffi::{CStr, CString};
+use ffmpeg_next::{codec, Codec, Error, format, StreamMut};
+use ffmpeg_sys_next::{av_get_sample_fmt, avcodec_alloc_context3, avcodec_parameters_from_context, avcodec_parameters_to_context, av_version_info};
 
 pub fn ffmpeg_version() -> &'static str {
     // ffmpeg-next does not provide a way to get the FFmpeg version number. It does provide the
@@ -10,7 +9,7 @@ pub fn ffmpeg_version() -> &'static str {
     // Safety: The return value of av_version_info() is guaranteed by the API to be a valid C
     //         string with a static lifetime.
     unsafe {
-        std::ffi::CStr::from_ptr(av_version_info()).to_str().unwrap()
+        CStr::from_ptr(av_version_info()).to_str().unwrap()
     }
 }
 

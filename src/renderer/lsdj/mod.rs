@@ -109,7 +109,7 @@ pub fn select_track_joypad_macro(gb: &mut Gameboy, track_index: u8, sync_role: S
     gb.joypad_macro_press(&[], Some(Duration::from_secs(5)));
 }
 
-pub fn get_song_position(gb: &mut Gameboy, end_detector: Arc<Mutex<EndDetector>>) -> Option<SongPosition> {
+pub fn get_song_position(gb: &mut Gameboy, end_detector: &Arc<Mutex<EndDetector>>) -> Option<SongPosition> {
     let lsdj_version = get_running_lsdj_version(gb).ok()?;
     let mut component_iter = lsdj_version.split(".");
     let major = i32::from_str(component_iter.next().unwrap_or_default()).unwrap_or(0);
@@ -136,7 +136,7 @@ pub fn get_song_position(gb: &mut Gameboy, end_detector: Arc<Mutex<EndDetector>>
     };
 
     let position = (0..4)
-        .map(|i| gb.read_memory(base_addr + i))
+        .map(|i| gb.read_memory_safe(base_addr + i))
         .filter(|&r| r <= 0x7F)
         .max();
 

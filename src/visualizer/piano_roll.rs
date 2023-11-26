@@ -61,7 +61,7 @@ impl PianoRollState {
         }
     }
 
-    pub fn consume(&mut self, state: ChannelState, settings: &ChannelSettings) {
+    pub fn consume(&mut self, state: &ChannelState, settings: &ChannelSettings) {
         self.taken_samples += 1.0;
         if self.taken_samples < self.samples_per_frame {
             return;
@@ -72,7 +72,7 @@ impl PianoRollState {
         let octave = (n / 12.0).floor() + self.starting_octave;
         let note = n.rem_euclid(12.0);
 
-        let color = settings.color(&state).unwrap();
+        let color = settings.color(state).unwrap();
         let index = note + 12.0 * octave;
         let width = state.volume;
 
@@ -274,7 +274,7 @@ impl Visualizer {
         let last_state = self.channel_last_states[channel];
 
         let color = settings.color(&last_state).unwrap();
-        if last_state.volume <= 0.0 {
+        if settings.hidden() || last_state.volume <= 0.0 {
             return;
         }
         let volume_alpha = 0.5 + last_state.volume / 30.0;
@@ -334,12 +334,15 @@ impl Visualizer {
         let keys_x = pos.x() + ((pos.width() - keys_w) / 2.0) + (self.config.key_thickness / 2.0) - 1.0;
 
         for channel in 0..self.channels {
+            if self.config.settings.settings(channel).unwrap().hidden() {
+                continue;
+            }
+
             let mut y = pos.y();
             for slice in self.piano_roll_states[channel].slices.iter().rev() {
                 if slice.width > 0.0 {
                     let slice_pos: Rect;
-                    let mut slice_paint = Paint::default();
-                    slice_paint.anti_alias = false;
+                    let mut slice_color: Color;
 
                     if outline {
                         slice_pos = Rect::from_xywh(
@@ -348,7 +351,7 @@ impl Visualizer {
                             slice.width + self.config.key_thickness,
                             slice.height + self.config.key_thickness
                         ).unwrap();
-                        slice_paint.set_color(self.config.outline_color);
+                        slice_color = self.config.outline_color;
                     } else {
                         slice_pos = Rect::from_xywh(
                             keys_x + (self.config.key_thickness * slice.index) - (slice.width / 2.0),
@@ -356,8 +359,15 @@ impl Visualizer {
                             slice.width,
                             slice.height
                         ).unwrap();
-                        slice_paint.set_color(slice.color);
+                        slice_color = slice.color;
                     }
+
+                    let mut slice_paint = Paint::default();
+                    slice_paint.anti_alias = slice.width > 1.0;
+                    if slice.width < 1.0 {
+                        slice_color.set_alpha(slice.width);
+                    }
+                    slice_paint.set_color(slice_color);
 
                     self.canvas.fill_rect(
                         slice_pos,

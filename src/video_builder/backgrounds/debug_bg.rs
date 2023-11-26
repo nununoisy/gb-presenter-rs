@@ -16,7 +16,7 @@ impl DebugBackground {
 
 impl VideoBackground for DebugBackground {
     fn next_frame(&mut self) -> frame::Video {
-        let mut frame = frame::Video::new(format::Pixel::BGRA, self.0, self.1);
+        let mut frame = frame::Video::new(format::Pixel::RGBA, self.0, self.1);
         frame.plane_mut::<(u8, u8, u8, u8)>(0)
             .iter_mut()
             .for_each(|px| *px = (0, 0, 255, 128));

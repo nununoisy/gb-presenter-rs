@@ -79,11 +79,11 @@ impl ChannelSettingsManager {
         self.0.get_mut(channel)
     }
 
-    pub fn settings_by_name(&self, chip: &str, channel: &str) -> Option<&ChannelSettings> {
-        self.0
-            .iter()
-            .find(|settings| settings.chip().as_str() == chip && settings.name().as_str() == channel)
-    }
+    // pub fn settings_by_name(&self, chip: &str, channel: &str) -> Option<&ChannelSettings> {
+    //     self.0
+    //         .iter()
+    //         .find(|settings| settings.chip().as_str() == chip && settings.name().as_str() == channel)
+    // }
 
     pub fn settings_mut_by_name(&mut self, chip: &str, channel: &str) -> Option<&mut ChannelSettings> {
         self.0
