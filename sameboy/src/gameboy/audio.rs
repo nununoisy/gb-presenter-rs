@@ -2,6 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
 use std::sync::{Arc, Mutex};
 use sameboy_sys::{GB_gameboy_t, GB_sample_t, GB_channel_t, GB_channel_t_GB_NOISE, GB_channel_t_GB_SQUARE_1, GB_channel_t_GB_SQUARE_2, GB_channel_t_GB_WAVE, GB_apu_set_sample_callback, GB_get_apu_wave_table, GB_get_channel_amplitude, GB_get_channel_edge_triggered, GB_get_channel_period, GB_get_channel_volume, GB_is_channel_muted, GB_set_channel_muted, GB_get_sample_rate, GB_set_sample_rate, GB_set_highpass_filter_mode, GB_highpass_mode_t, GB_highpass_mode_t_GB_HIGHPASS_OFF, GB_highpass_mode_t_GB_HIGHPASS_ACCURATE, GB_highpass_mode_t_GB_HIGHPASS_REMOVE_DC_OFFSET, GB_set_interference_volume};
+use crate::gameboy::inner::Dummy;
 use super::Gameboy;
 
 pub const AUDIO_BUFFER_INITIAL_SIZE: usize = 4 * 1024 * 1024;
@@ -59,7 +60,8 @@ pub trait ApuStateReceiver {
     fn receive(&mut self, id: usize, channel: ApuChannel, volume: u8, amplitude: u8, frequency: f64, timbre: usize, balance: f64, edge: bool);
 }
 
-fn send_pulse_channel_state(gb: &mut Gameboy, pulse2: bool, io_registers: &[u8]) {
+fn send_pulse_channel_state(gb: &mut Gameboy, pulse2: bool) {
+    let io_registers = gb.get_io_registers();
     let io_base = if pulse2 { 0x15 } else { 0x10 };
     let nrx1 = io_registers[io_base + 1];
     let nr51 = io_registers[0x25];
@@ -101,15 +103,14 @@ fn send_pulse_channel_state(gb: &mut Gameboy, pulse2: bool, io_registers: &[u8])
 
     unsafe {
         (*gb.inner_mut()).apu_receiver
-            .clone()
-            .unwrap()
             .lock()
             .unwrap()
             .receive(id, channel, volume, amplitude, frequency, timbre, balance, edge);
     }
 }
 
-fn send_wave_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
+fn send_wave_channel_state(gb: &mut Gameboy) {
+    let io_registers = gb.get_io_registers();
     let nr30 = io_registers[0x1A];
     let nr51 = io_registers[0x25];
 
@@ -157,15 +158,14 @@ fn send_wave_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
 
     unsafe {
         (*gb.inner_mut()).apu_receiver
-            .clone()
-            .unwrap()
             .lock()
             .unwrap()
             .receive(id, ApuChannel::Wave, volume, amplitude, frequency, timbre, balance, edge);
     }
 }
 
-fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
+fn send_noise_channel_state(gb: &mut Gameboy) {
+    let io_registers = gb.get_io_registers();
     let nr43 = io_registers[0x22];
     let nr51 = io_registers[0x25];
 
@@ -210,8 +210,6 @@ fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
 
     unsafe {
         (*gb.inner_mut()).apu_receiver
-            .clone()
-            .unwrap()
             .lock()
             .unwrap()
             .receive(id, ApuChannel::Noise, volume, amplitude, frequency, timbre, balance, edge);
@@ -221,16 +219,17 @@ fn send_noise_channel_state(gb: &mut Gameboy, io_registers: &[u8]) {
 extern fn apu_sample_callback(gb: *mut GB_gameboy_t, sample: *mut GB_sample_t) {
     unsafe {
         let mut gb = Gameboy::wrap(gb);
-        (*gb.inner_mut()).audio_buf.push_back((*sample).left);
-        (*gb.inner_mut()).audio_buf.push_back((*sample).right);
 
-        let io_registers = gb.get_io_registers();
-        if (*gb.inner()).apu_receiver.is_some() {
-            send_pulse_channel_state(&mut gb, false, &io_registers);
-            send_pulse_channel_state(&mut gb, true, &io_registers);
-            send_wave_channel_state(&mut gb, &io_registers);
-            send_noise_channel_state(&mut gb, &io_registers);
+        {
+            let mut audio_buf = (*gb.inner_mut()).audio_buf.lock().unwrap();
+            audio_buf.push_back((*sample).left);
+            audio_buf.push_back((*sample).right);
         }
+
+        send_pulse_channel_state(&mut gb, false);
+        send_pulse_channel_state(&mut gb, true);
+        send_wave_channel_state(&mut gb);
+        send_noise_channel_state(&mut gb);
     }
 }
 
@@ -306,17 +305,18 @@ impl Gameboy {
     /// If the buffer is underfull, then None is returned.
     /// If no frame size is specified, then the entire buffer is returned.
     pub fn get_audio_samples(&mut self, frame_size: Option<usize>) -> Option<Vec<i16>> {
+        let mut audio_buf = unsafe { (*self.inner_mut()).audio_buf.lock().unwrap() };
         match frame_size {
-            Some(frame_size) => unsafe {
-                if (*self.inner()).audio_buf.len() < frame_size * 2 {
+            Some(frame_size) => {
+                if audio_buf.len() < frame_size * 2 {
                     return None;
                 }
-                let result: Vec<_> = (*self.inner_mut()).audio_buf.drain(0..(frame_size * 2)).collect();
+                let result: Vec<_> = audio_buf.drain(0..(frame_size * 2)).collect();
                 Some(result)
             },
-            None => unsafe {
-                let result: Vec<_> = (*self.inner_mut()).audio_buf.clone().into_iter().collect();
-                (*self.inner_mut()).audio_buf.clear();
+            None => {
+                let result: Vec<_> = audio_buf.clone().into_iter().collect();
+                audio_buf.clear();
                 Some(result)
             }
         }
@@ -339,7 +339,7 @@ impl Gameboy {
     /// Set an APU receiver to get updates on the currently playing audio.
     pub fn set_apu_receiver(&mut self, apu_receiver: Option<Arc<Mutex<dyn ApuStateReceiver>>>) {
         unsafe {
-            (*self.inner_mut()).apu_receiver = apu_receiver;
+            (*self.inner_mut()).apu_receiver = apu_receiver.unwrap_or(Arc::new(Mutex::new(Dummy)));
         }
     }
 }

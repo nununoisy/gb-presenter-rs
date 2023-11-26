@@ -13,8 +13,9 @@ extern fn print_image_callback(gb: *mut GB_gameboy_t, image: *mut u32, height: u
 
         (*gb.inner_mut())
             .printer_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().print_data_updated(id, &image, top_margin, bottom_margin, exposure));
+            .lock()
+            .unwrap()
+            .print_data_updated(id, &image, top_margin, bottom_margin, exposure);
     }
 }
 
@@ -25,8 +26,9 @@ extern fn printer_done_callback(gb: *mut GB_gameboy_t) {
 
         (*gb.inner_mut())
             .printer_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().print_finished(id));
+            .lock()
+            .unwrap()
+            .print_finished(id);
     }
 }
 
@@ -47,7 +49,7 @@ impl Gameboy {
 impl Gameboy {
     pub fn connect_printer(&mut self, printer_reciever: Arc<Mutex<dyn PrinterReceiver>>) {
         unsafe {
-            (*self.inner_mut()).printer_receiver = Some(printer_reciever);
+            (*self.inner_mut()).printer_receiver = printer_reciever;
 
             self.disconnect();
             self.connect_inner(LinkTarget::Printer);

@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::io;
-use std::io::{BufWriter, Read, Write};
+use std::io::{Read, Write};
 
 // cat gb-presenter-rs\sameboy-sys\external\SameBoy\Core\apu.h | \
 // .\cppp.exe -DGB_DISABLE_TIMEKEEPING -DGB_DISABLE_REWIND -DGB_DISABLE_DEBUGGER -DGB_DISABLE_CHEATS -UGB_INTERNAL
@@ -47,16 +47,39 @@ fn run_cppp<P: AsRef<Path>>(input_path: P, output_path: P) {
     output_file.write_all(&output_src.into_bytes()).expect("Failed to write output file");
 }
 
+fn cc_add_debug_dependent_flags(build: &mut cc::Build) -> &mut cc::Build {
+    match option_env!("DEBUG") {
+        Some("false") | None => {
+            build
+                .flag("-DNDEBUG")
+                .flag("-ffast-math")
+        },
+        Some(_) => build
+    }
+}
+
+#[cfg(feature = "thread-safety")]
+fn cc_set_thread_safety(build: &mut cc::Build) -> &mut cc::Build {
+    build.flag("-DGB_CONTEXT_SAFETY")
+}
+
+#[cfg(not(feature = "thread-safety"))]
+fn cc_set_thread_safety(build: &mut cc::Build) -> &mut cc::Build {
+    build.flag("-UGB_CONTEXT_SAFETY")
+}
+
 #[cfg(not(target_env = "msvc"))]
 fn configure_cc_build(build: &mut cc::Build) -> &mut cc::Build {
-    build
+    cc_add_debug_dependent_flags(cc_set_thread_safety(build))
 }
 
 #[cfg(target_env = "msvc")]
 fn configure_cc_build(build: &mut cc::Build) -> &mut cc::Build {
-    build
-        .compiler("clang")
-        .include("external/SameBoy/Windows")
+    cc_add_debug_dependent_flags(cc_set_thread_safety(
+        build
+            .compiler("clang")
+            .include("external/SameBoy/Windows")
+    ))
 }
 
 fn main() {
@@ -83,9 +106,6 @@ fn main() {
         let output_path = sameboy_include_dir.join(input_path.file_name().unwrap());
         match extension.unwrap().to_str().unwrap() {
             "h" => run_cppp(input_path, output_path),
-            "c" => {
-                fs::copy(input_path, output_path).unwrap();
-            },
             _ => ()
         }
     }
@@ -151,7 +171,7 @@ fn main() {
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Failed to write bindings");
 
-    let mut constants = BufWriter::new(
+    let mut constants = io::BufWriter::new(
         fs::File::create(out_dir.join("constants.rs"))
             .expect("Failed to open constants for writing")
     );

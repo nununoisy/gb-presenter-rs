@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use sameboy_sys::{GB_gameboy_t, GB_get_clock_rate, GB_get_player_count, GB_get_unmultiplied_clock_rate, GB_set_clock_multiplier, GB_set_icd_hreset_callback, GB_set_icd_pixel_callback, GB_set_icd_vreset_callback, GB_set_joyp_write_callback};
 use super::Gameboy;  // Insert Xzibit photo here
+use super::inner::Dummy;
 
 extern fn joyp_write_callback(gb: *mut GB_gameboy_t, value: u8) {
     unsafe {
@@ -9,8 +10,9 @@ extern fn joyp_write_callback(gb: *mut GB_gameboy_t, value: u8) {
 
         (*gb.inner_mut())
             .sgb_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().joypad_write(id, value));
+            .lock()
+            .unwrap()
+            .joypad_write(id, value);
     }
 }
 
@@ -21,8 +23,9 @@ extern fn icd_pixel_callback(gb: *mut GB_gameboy_t, row: u8) {
 
         (*gb.inner_mut())
             .sgb_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().icd_pixel(id, row));
+            .lock()
+            .unwrap()
+            .icd_pixel(id, row);
     }
 }
 
@@ -33,8 +36,9 @@ extern fn icd_hreset_callback(gb: *mut GB_gameboy_t) {
 
         (*gb.inner_mut())
             .sgb_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().icd_hreset(id));
+            .lock()
+            .unwrap()
+            .icd_hreset(id);
     }
 }
 
@@ -45,8 +49,9 @@ extern fn icd_vreset_callback(gb: *mut GB_gameboy_t) {
 
         (*gb.inner_mut())
             .sgb_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().icd_vreset(id));
+            .lock()
+            .unwrap()
+            .icd_vreset(id);
     }
 }
 
@@ -85,7 +90,7 @@ impl Gameboy {
                 Self::deinit_sgb(self.as_mut_ptr());
             }
 
-            (*self.inner_mut()).sgb_receiver = sgb_receiver;
+            (*self.inner_mut()).sgb_receiver = sgb_receiver.unwrap_or(Arc::new(Mutex::new(Dummy)));
         }
     }
 

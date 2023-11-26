@@ -36,12 +36,7 @@ impl Gameboy {
 
     pub fn workboy_enabled(&mut self) -> bool {
         unsafe {
-            if let Some(LinkTarget::Workboy) = (*self.inner()).link_target {
-                if GB_workboy_is_enabled(self.as_mut_ptr()) {
-                    return true;
-                }
-            }
-            false
+            (*(*self.inner()).link_target.lock().unwrap()) == LinkTarget::Workboy && GB_workboy_is_enabled(self.as_mut_ptr())
         }
     }
 
@@ -57,14 +52,14 @@ impl Gameboy {
 
     pub fn workboy_time(&self) -> SystemTime {
         unsafe {
-            (*self.inner()).workboy_time_base + (*self.inner()).workboy_time_last_set.elapsed()
+            (*self.inner()).workboy_time_base.lock().unwrap().clone() + (*self.inner()).workboy_time_last_set.lock().unwrap().elapsed()
         }
     }
 
     pub fn set_workboy_time(&mut self, time: SystemTime) {
         unsafe {
-            (*self.inner_mut()).workboy_time_base = time;
-            (*self.inner_mut()).workboy_time_last_set = Instant::now();
+            (*(*self.inner_mut()).workboy_time_base.lock().unwrap()) = time;
+            (*(*self.inner_mut()).workboy_time_last_set.lock().unwrap()) = Instant::now();
         }
     }
 }

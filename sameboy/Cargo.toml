@@ -15,5 +15,6 @@ anyhow = "1.0"
 image = { version = "0.24", optional = true }
 
 [features]
-default = ["include-bootroms"]
+default = ["include-bootroms", "thread-safety"]
 include-bootroms = []
+thread-safety = ["sameboy-sys/thread-safety"]

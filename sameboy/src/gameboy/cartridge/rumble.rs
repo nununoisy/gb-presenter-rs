@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use sameboy_sys::{GB_gameboy_t, GB_rumble_mode_t, GB_rumble_mode_t_GB_RUMBLE_ALL_GAMES, GB_rumble_mode_t_GB_RUMBLE_CARTRIDGE_ONLY, GB_rumble_mode_t_GB_RUMBLE_DISABLED, GB_set_rumble_callback, GB_set_rumble_mode};
 use super::super::Gameboy;
+use super::super::inner::Dummy;
 
 extern fn rumble_callback(gb: *mut GB_gameboy_t, amplitude: f64) {
     unsafe {
@@ -9,8 +10,9 @@ extern fn rumble_callback(gb: *mut GB_gameboy_t, amplitude: f64) {
 
         (*gb.inner_mut())
             .rumble_receiver
-            .clone()
-            .map(|r| r.lock().unwrap().receive(id, amplitude));
+            .lock()
+            .unwrap()
+            .receive(id, amplitude);
     }
 }
 
@@ -59,7 +61,7 @@ impl Gameboy {
 impl Gameboy {
     pub fn set_rumble_receiver(&mut self, rumble_receiver: Option<Arc<Mutex<dyn RumbleReceiver>>>) {
         unsafe {
-            (*self.inner_mut()).rumble_receiver = rumble_receiver;
+            (*self.inner_mut()).rumble_receiver = rumble_receiver.unwrap_or(Arc::new(Mutex::new(Dummy)));
         }
     }
 

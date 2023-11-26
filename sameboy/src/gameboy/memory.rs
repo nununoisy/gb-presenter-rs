@@ -1,6 +1,8 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use super::Gameboy;
 use sameboy_sys::{GB_gameboy_t, GB_set_execution_callback, GB_set_read_memory_callback, GB_set_write_memory_callback, GB_read_memory, GB_safe_read_memory, GB_write_memory, GB_set_open_bus_decay_time};
+use super::inner::Dummy;
 
 pub trait MemoryInterceptor {
     /// Intercept a memory read. Return `data` to use default behavior.
@@ -44,36 +46,29 @@ impl Gameboy {
         GB_set_execution_callback(gb, Some(execution_callback));
     }
 
+    #[inline(always)]
     pub(crate) unsafe fn intercept_read(&mut self, addr: u16, data: u8) -> u8 {
-        if let Some(interceptor) = (*self.inner_mut()).memory_interceptor.clone() {
-            interceptor.lock().unwrap().intercept_read(self.id(), addr, data)
-        } else {
-            data
-        }
+        (*self.inner_mut()).memory_interceptor.lock().unwrap().intercept_read(self.id(), addr, data)
     }
 
+    #[inline(always)]
     pub(crate) unsafe fn intercept_write(&mut self, addr: u16, data: u8) -> bool {
         match addr {
-            0xFF00 ..= 0xFF7F => (*self.inner_mut()).io_registers_copy[(addr & 0xFF) as usize] = data,
+            0xFF00 ..= 0xFF7F => (*(*self.inner_mut()).io_registers_copy.lock().unwrap().get_unchecked_mut((addr & 0x7F) as usize)) = data,
             _ => ()
         }
 
-        if let Some(interceptor) = (*self.inner_mut()).memory_interceptor.clone() {
-            interceptor.lock().unwrap().intercept_write(self.id(), addr, data)
-        } else {
-            true
-        }
+        (*self.inner_mut()).memory_interceptor.lock().unwrap().intercept_write(self.id(), addr, data)
     }
 
+    #[inline(always)]
     pub(crate) unsafe fn intercept_execute(&mut self, addr: u16, opcode: u8) {
         match addr {
-            0x0100 => (*self.inner_mut()).boot_rom_unmapped = true,
+            0x0100 => (*self.inner_mut()).boot_rom_unmapped.store(true, Ordering::Release),
             _ => ()
         }
 
-        if let Some(interceptor) = (*self.inner_mut()).memory_interceptor.clone() {
-            interceptor.lock().unwrap().intercept_execute(self.id(), addr, opcode);
-        }
+        (*self.inner_mut()).memory_interceptor.lock().unwrap().intercept_execute(self.id(), addr, opcode);
     }
 }
 
@@ -102,14 +97,14 @@ impl Gameboy {
     /// Set a memory interceptor to hijack reads/writes/executes.
     pub fn set_memory_interceptor(&mut self, memory_interceptor: Option<Arc<Mutex<dyn MemoryInterceptor>>>) {
         unsafe {
-            (*self.inner_mut()).memory_interceptor = memory_interceptor;
+            (*self.inner_mut()).memory_interceptor = memory_interceptor.unwrap_or(Arc::new(Mutex::new(Dummy)));
         }
     }
 
     /// Get a copy of the last values written to the IO registers.
-    pub fn get_io_registers(&self) -> [u8; 0x80] {
+    pub fn get_io_registers(&self) -> Vec<u8> {
         unsafe {
-            (*self.inner()).io_registers_copy.clone()
+            (*self.inner()).io_registers_copy.lock().unwrap().to_vec()
         }
     }
 

@@ -1,3 +1,4 @@
+use std::sync::atomic::Ordering;
 use sameboy_sys::{GB_gameboy_t, GB_load_boot_rom_from_buffer};
 use super::Gameboy;
 
@@ -34,7 +35,7 @@ impl Gameboy {
     /// Load a boot ROM.
     pub fn load_boot_rom(&mut self, boot_rom: &[u8]) {
         unsafe {
-            (*self.inner_mut()).boot_rom_unmapped = false;
+            (*self.inner_mut()).boot_rom_unmapped.store(false, Ordering::Release);
             GB_load_boot_rom_from_buffer(self.as_mut_ptr(), boot_rom.as_ptr(), boot_rom.len());
         }
     }
@@ -42,7 +43,7 @@ impl Gameboy {
     /// Check to see if the boot ROM has finished executing.
     pub fn boot_rom_finished(&self) -> bool {
         unsafe {
-            (*self.inner()).boot_rom_unmapped
+            (*self.inner()).boot_rom_unmapped.load(Ordering::Acquire)
         }
     }
 }

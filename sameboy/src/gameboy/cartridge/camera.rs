@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use sameboy_sys::{GB_gameboy_t, GB_set_camera_get_pixel_callback, GB_set_camera_update_request_callback};
-use crate::Gameboy;
+use super::super::Gameboy;
+use super::super::inner::Dummy;
 
 extern fn camera_get_pixel_callback(gb: *mut GB_gameboy_t, x: u8, y: u8) -> u8 {
     unsafe {
@@ -9,9 +10,9 @@ extern fn camera_get_pixel_callback(gb: *mut GB_gameboy_t, x: u8, y: u8) -> u8 {
 
         (*gb.inner())
             .camera_provider
-            .clone()
-            .map(|p| p.lock().unwrap().get_pixel(id, x, y))
-            .unwrap_or(0)
+            .lock()
+            .unwrap()
+            .get_pixel(id, x, y)
     }
 }
 
@@ -22,8 +23,9 @@ extern fn camera_update_request_callback(gb: *mut GB_gameboy_t) {
 
         (*gb.inner_mut())
             .camera_provider
-            .clone()
-            .map(|p| p.lock().unwrap().update(id));
+            .lock()
+            .unwrap()
+            .update(id);
     }
 }
 
@@ -46,7 +48,7 @@ impl Gameboy {
     /// Set a camera provider for cartridges that support the Game Boy Camera.
     pub fn set_camera_provider(&mut self, camera_provider: Option<Arc<Mutex<dyn CameraProvider>>>) {
         unsafe {
-            (*self.inner_mut()).camera_provider = camera_provider;
+            (*self.inner_mut()).camera_provider = camera_provider.unwrap_or(Arc::new(Mutex::new(Dummy)));
         }
     }
 }

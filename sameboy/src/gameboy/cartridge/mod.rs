@@ -4,6 +4,7 @@ mod accelerometer;
 pub(crate) mod rumble;
 
 use std::ffi::CString;
+use std::sync::atomic::Ordering;
 use sameboy_sys::{GB_gbs_switch_track, GB_get_rom_crc32, GB_get_rom_title, GB_load_battery_from_buffer, GB_load_gbs_from_buffer, GB_load_rom_from_buffer, GB_save_battery_size, GB_save_battery_to_buffer};
 use super::Gameboy;
 use super::gbs_info::GbsInfo;
@@ -13,7 +14,7 @@ impl Gameboy {
     /// Load a cartridge ROM.
     pub fn load_rom(&mut self, rom: &[u8]) {
         unsafe {
-            (*self.inner_mut()).boot_rom_unmapped = false;
+            (*self.inner_mut()).boot_rom_unmapped.store(false, Ordering::Release);
             GB_load_rom_from_buffer(self.as_mut_ptr(), rom.as_ptr(), rom.len());
         }
     }
@@ -39,7 +40,7 @@ impl Gameboy {
     pub fn load_gbs(&mut self, gbs: &[u8]) -> Result<GbsInfo> {
         let mut info = GbsInfo::new();
         unsafe {
-            (*self.inner_mut()).boot_rom_unmapped = false;
+            (*self.inner_mut()).boot_rom_unmapped.store(false, Ordering::Release);
 
             let ret = GB_load_gbs_from_buffer(self.as_mut_ptr(), gbs.as_ptr(), gbs.len(), info.as_mut_ptr());
             if ret != 0 {

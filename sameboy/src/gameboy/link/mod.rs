@@ -2,11 +2,15 @@ pub(crate) mod printer;
 mod workboy;
 pub(crate) mod workboy_key;
 
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::Ordering;
 use sameboy_sys::{GB_gameboy_t, GB_disconnect_serial, GB_serial_get_data_bit, GB_serial_set_data_bit, GB_set_infrared_callback, GB_set_infrared_input, GB_set_serial_transfer_bit_end_callback, GB_set_serial_transfer_bit_start_callback};
 use super::Gameboy;
+use super::inner::Dummy;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum LinkTarget {
+    None,
     Console(*mut GB_gameboy_t),
     Printer,
     Workboy
@@ -15,10 +19,10 @@ pub(crate) enum LinkTarget {
 extern fn serial_transfer_bit_start_callback(gb: *mut GB_gameboy_t, bit: bool) {
     unsafe {
         let mut gb = Gameboy::wrap(gb);
-        if let Some(LinkTarget::Console(_)) = (*gb.inner_mut()).link_target {
-            (*gb.inner_mut()).link_next_bit = bit;
+        if let LinkTarget::Console(_) = *(*gb.inner_mut()).link_target.lock().unwrap() {
+            (*gb.inner_mut()).link_next_bit.store(bit, Ordering::SeqCst);
         } else {
-            panic!("Console link callback fired but link target is {:?}", (*gb.inner_mut()).link_target);
+            panic!("Console link callback fired but link target is {:?}", (*gb.inner_mut()).link_target.lock().unwrap());
         }
     }
 }
@@ -26,12 +30,12 @@ extern fn serial_transfer_bit_start_callback(gb: *mut GB_gameboy_t, bit: bool) {
 extern fn serial_transfer_bit_end_callback(gb: *mut GB_gameboy_t) -> bool {
     unsafe {
         let mut gb = Gameboy::wrap(gb);
-        if let Some(LinkTarget::Console(other)) = (*gb.inner_mut()).link_target {
+        if let LinkTarget::Console(other) = *(*gb.inner_mut()).link_target.lock().unwrap() {
             let result = GB_serial_get_data_bit(other);
-            GB_serial_set_data_bit(other, (*gb.inner()).link_next_bit);
+            GB_serial_set_data_bit(other, (*gb.inner()).link_next_bit.load(Ordering::SeqCst));
             result
         } else {
-            panic!("Console link callback fired but link target is {:?}", (*gb.inner_mut()).link_target);
+            panic!("Console link callback fired but link target is {:?}", (*gb.inner_mut()).link_target.lock().unwrap());
         }
     }
 }
@@ -39,27 +43,28 @@ extern fn serial_transfer_bit_end_callback(gb: *mut GB_gameboy_t) -> bool {
 extern fn infrared_callback(gb: *mut GB_gameboy_t, bit: bool) {
     unsafe {
         let mut gb = Gameboy::wrap(gb);
-        if let Some(LinkTarget::Console(other)) = (*gb.inner_mut()).link_target {
+        if let LinkTarget::Console(other) = *(*gb.inner_mut()).link_target.lock().unwrap() {
             GB_set_infrared_input(other, bit);
         } else {
-            panic!("Console IR callback fired but link target is {:?}", (*gb.inner_mut()).link_target);
+            panic!("Console IR callback fired but link target is {:?}", (*gb.inner_mut()).link_target.lock().unwrap());
         }
     }
 }
 
 impl Gameboy {
     unsafe fn disconnect_inner(&mut self) {
-        (*self.inner_mut()).link_target = None;
-        (*self.inner_mut()).link_next_bit = true;
+        (*(*self.inner_mut()).link_target.lock().unwrap()) = LinkTarget::None;
+        (*self.inner_mut()).link_next_bit.store(true, Ordering::SeqCst);
         GB_disconnect_serial(self.as_mut_ptr());
         GB_set_infrared_callback(self.as_mut_ptr(), None);
     }
 
     unsafe fn connect_inner(&mut self, target: LinkTarget) {
-        (*self.inner_mut()).link_target = Some(target);
-        (*self.inner_mut()).link_next_bit = true;
+        (*(*self.inner_mut()).link_target.lock().unwrap()) = target;
+        (*self.inner_mut()).link_next_bit.store(true, Ordering::SeqCst);
 
         match target {
+            LinkTarget::None => (),
             LinkTarget::Console(_) => {
                 GB_set_serial_transfer_bit_start_callback(self.as_mut_ptr(), Some(serial_transfer_bit_start_callback));
                 GB_set_serial_transfer_bit_end_callback(self.as_mut_ptr(), Some(serial_transfer_bit_end_callback));
@@ -74,18 +79,18 @@ impl Gameboy {
 impl Gameboy {
     pub fn connected(&self) -> bool {
         unsafe {
-            (*self.inner()).link_target.is_some()
+            (*(*self.inner()).link_target.lock().unwrap()) != LinkTarget::None
         }
     }
 
     pub fn disconnect(&mut self) {
         unsafe {
-            match (*self.inner()).link_target {
-                Some(LinkTarget::Console(gb)) => {
+            match *(*self.inner()).link_target.lock().unwrap() {
+                LinkTarget::Console(gb) => {
                     Gameboy::wrap(gb).disconnect_inner()
                 },
-                Some(LinkTarget::Printer) => {
-                    (*self.inner_mut()).printer_receiver = None;
+                LinkTarget::Printer => {
+                    (*self.inner_mut()).printer_receiver = Arc::new(Mutex::new(Dummy));
                 }
                 _ => ()
             }
