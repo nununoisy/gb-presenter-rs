@@ -390,22 +390,24 @@ pub fn run() {
                 Some(path) => {
                     track_durations.borrow_mut().clear();
 
-                    main_window_weak.unwrap().set_rom_path(path.clone().into());
-                    main_window_weak.unwrap().set_sav_path("".into());
-                    main_window_weak.unwrap().set_input_type(InputType::None);
-                    main_window_weak.unwrap().set_input_valid(false);
-
                     if !for_2x {
+                        main_window_weak.unwrap().set_rom_path(path.clone().into());
+                        main_window_weak.unwrap().set_sav_path("".into());
                         main_window_weak.unwrap().set_track_titles(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
                         main_window_weak.unwrap().set_selected_track_index(-1);
                         main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
+                        main_window_weak.unwrap().set_input_type(InputType::None);
                     } else {
                         debug_assert!(main_window_weak.unwrap().invoke_is_2x(), "Tried to set 2x SAV in non-2x mode");
 
+                        main_window_weak.unwrap().set_rom_path_2x(path.clone().into());
+                        main_window_weak.unwrap().set_sav_path_2x("".into());
                         main_window_weak.unwrap().set_track_titles_2x(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
                         main_window_weak.unwrap().set_selected_track_index_2x(-1);
                         main_window_weak.unwrap().set_selected_track_text_2x("Select a track...".into());
                     }
+
+                    main_window_weak.unwrap().set_input_valid(false);
 
                     main_window_weak.unwrap().set_track_duration_num("300".into());
                     main_window_weak.unwrap().set_track_duration_type("seconds".into());
@@ -418,7 +420,6 @@ pub fn run() {
                             display_error_dialog("Unsupported LSDj version! Please select a ROM that is v3.x or newer.");
                             return;
                         }
-                        main_window_weak.unwrap().set_sav_path("".into());
                         main_window_weak.unwrap().set_input_type(InputType::LSDj);
                         main_window_weak.unwrap().set_input_valid(false);
                         if !for_2x {
@@ -446,6 +447,9 @@ pub fn run() {
                     if for_2x {
                         display_error_dialog(format!("Error opening 2x LSDj ROM!\n{}", lsdj_version.err().unwrap()).as_str());
                         return;
+                    } else {
+                        main_window_weak.unwrap().set_rom_path_2x("".into());
+                        main_window_weak.unwrap().set_sav_path_2x("".into());
                     }
 
                     let gbs = Gbs::open(path.clone());
@@ -532,15 +536,15 @@ pub fn run() {
         main_window.on_browse_for_sav(move |for_2x| {
             match browse_for_sav_dialog() {
                 Some(path) => {
-                    main_window_weak.unwrap().set_sav_path(path.clone().into());
-
                     if !for_2x {
+                        main_window_weak.unwrap().set_sav_path(path.clone().into());
                         main_window_weak.unwrap().set_track_titles(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
                         main_window_weak.unwrap().set_selected_track_index(-1);
                         main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
                     } else {
                         debug_assert!(main_window_weak.unwrap().invoke_is_2x(), "Tried to set 2x SAV in non-2x mode");
 
+                        main_window_weak.unwrap().set_sav_path_2x(path.clone().into());
                         main_window_weak.unwrap().set_track_titles_2x(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
                         main_window_weak.unwrap().set_selected_track_index_2x(-1);
                         main_window_weak.unwrap().set_selected_track_text_2x("Select a track...".into());
