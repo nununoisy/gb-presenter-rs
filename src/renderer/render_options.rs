@@ -64,7 +64,7 @@ pub enum RenderInput {
     GBS(String),
     LSDj(String, String),
     LSDj2x(String, String, String, String),
-    VGM(String)
+    VGM(String, u32, i32)
 }
 
 #[derive(Clone)]

@@ -17,6 +17,7 @@ export component MainWindow inherits Window {
     callback reset-config();
     callback update-formatted-duration();
     callback update-channel-configs(bool);
+    callback update-vgm-config();
     callback start-render();
     callback cancel-render();
 
@@ -45,6 +46,8 @@ export component MainWindow inherits Window {
     in-out property <int> output-height: 1080;
     in property <[string]> track-titles: [];
     in property <[string]> track-titles-2x: [];
+    in-out property <int> vgm-engine-rate: 60;
+    in-out property <int> vgm-tma-offset: 0;
 
     in-out property<[ChannelConfig]> config-lr35902: [
         { name: "Pulse 1", hidden: false, colors: [] },
@@ -68,9 +71,10 @@ export component MainWindow inherits Window {
 
     property<float> i-progress-anim-tick: -cos(180deg * mod(animation-tick() / 1.3s, 2) / 2) + 1;
     property<bool> lsdj-2x: false;
+    in property<bool> vgm-2x: false;
 
-    public function is-2x() -> bool {
-        root.input-type == InputType.LSDj && root.lsdj-2x
+    public pure function is-2x() -> bool {
+        (root.input-type == InputType.LSDj && root.lsdj-2x) || (root.input-type == InputType.VGM && root.vgm-2x)
     }
 
     title: "GBPresenter";
@@ -97,6 +101,7 @@ export component MainWindow inherits Window {
 
                 VerticalBox {
                     alignment: start;
+
                     HorizontalLayout {
                         alignment: center;
                         spacing: 8px;
@@ -112,47 +117,55 @@ export component MainWindow inherits Window {
                             vertical-alignment: center;
                         }
                     }
-                    Text {
-                        text: "by nununoisy";
-                        horizontal-alignment: center;
-                    }
                     HorizontalLayout {
                         alignment: center;
                         spacing: 8px;
 
                         Image {
-                            width: 16px;
+                            width: 32px;
+                            height: 32px;
                             source: @image-url("sameboy-icon.png");
-                            image-rendering: pixelated;
                         }
-                        Text {
-                            text: "SameBoy v" + root.sameboy-version;
-                            font-size: 16px;
-                            vertical-alignment: center;
+                        VerticalLayout {
+                            alignment: center;
+                            
+                            Text {
+                                text: "SameBoy v" + root.sameboy-version;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: "https://sameboy.github.io/";
+                                font-size: 10px;
+                                horizontal-alignment: center;
+                            }
                         }
-                    }
-                    Text {
-                        text: "https://sameboy.github.io/";
-                        horizontal-alignment: center;
                     }
                     HorizontalLayout {
                         alignment: center;
                         spacing: 8px;
 
                         Image {
-                            width: 16px;
+                            width: 32px;
+                            height: 32px;
                             source: @image-url("ffmpeg-icon.png");
                         }
-                        Text {
-                            text: "FFmpeg v" + root.ffmpeg-version;
-                            font-size: 16px;
-                            vertical-alignment: center;
+                        VerticalLayout {
+                            alignment: center;
+                            
+                            Text {
+                                text: "FFmpeg v" + root.ffmpeg-version;
+                                font-size: 14px;
+                                horizontal-alignment: center;
+                            }
+                            Text {
+                                text: "https://ffmpeg.org/";
+                                font-size: 10px;
+                                horizontal-alignment: center;
+                            }
                         }
                     }
-                    Text {
-                        text: "https://ffmpeg.org/";
-                        horizontal-alignment: center;
-                    }
+
                     AboutSlint {
                         preferred-height: 100px;
                     }
@@ -304,6 +317,54 @@ export component MainWindow inherits Window {
                 }
             }
         }
+        if input-type == InputType.VGM : HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+            
+            if vgm-2x : VerticalLayout {
+                alignment: center;
+
+                Rectangle {
+                    background: #ff9800;
+                    width: 24px;
+                    height: 18px;
+                    border-radius: 2px;
+
+                    Text {
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                        text: "2x";
+                        color: black;
+                    }
+                }
+            }
+            Text {
+                text: "Engine rate (Hz):";
+                vertical-alignment: center;
+            }
+            SpinBox {
+                value <=> root.vgm-engine-rate;
+                minimum: 1;
+                maximum: 1000;
+                enabled: !rendering;
+                edited => {
+                    root.update-vgm-config();
+                }
+            }
+            Text {
+                text: "TMA offset:";
+                vertical-alignment: center;
+            }
+            SpinBox {
+                value <=> root.vgm-tma-offset;
+                minimum: -128;
+                maximum: 127;
+                enabled: !rendering;
+                edited => {
+                    root.update-vgm-config();
+                }
+            }
+        }
         HorizontalLayout {
             alignment: end;
             spacing: 8px;
@@ -335,7 +396,7 @@ export component MainWindow inherits Window {
         }
         ChannelConfigView {
             enabled: !rendering;
-            active-chips: (input-type == InputType.LSDj && lsdj-2x)
+            active-chips: root.is-2x()
                 ? ["LR35902", "LR35902 (2x)"]
                 : ["LR35902"];
             config-lr35902 <=> root.config-lr35902;

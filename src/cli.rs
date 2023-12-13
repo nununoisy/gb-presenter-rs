@@ -152,7 +152,7 @@ fn get_renderer_options() -> RendererOptions {
     } else if let Some(gbs_file) = matches.get_one::<PathBuf>("gbs") {
         options.input = RenderInput::GBS(gbs_file.to_str().unwrap().to_string());
     } else if let Some(vgm_file) = matches.get_one::<PathBuf>("vgm") {
-        options.input = RenderInput::VGM(vgm_file.to_str().unwrap().to_string());
+        options.input = RenderInput::VGM(vgm_file.to_str().unwrap().to_string(), 60, 0);
     } else {
         panic!("One of --gbs/--lsdj/--2xlsdj/--vgm is required");
     }
@@ -182,9 +182,9 @@ fn get_renderer_options() -> RendererOptions {
     }
 
     options.stop_condition = match (matches.get_one::<StopCondition>("stop-at").cloned().unwrap(), &options.input) {
-        (StopCondition::Loops(loops), RenderInput::VGM(vgm_path)) => {
+        (StopCondition::Loops(loops), RenderInput::VGM(vgm_path, engine_rate, _)) => {
             let vgm_s = vgm::Vgm::open(vgm_path).unwrap();
-            let frames = vgm::duration_frames(&vgm_s, loops);
+            let frames = vgm::duration_frames(&vgm_s, *engine_rate, loops);
             StopCondition::Frames(frames as u64)
         },
         (stop_condition, _) => stop_condition

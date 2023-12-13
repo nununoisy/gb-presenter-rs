@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use ringbuf::{HeapRb, Rb, ring_buffer::RbBase};
 use render_options::{RendererOptions, RenderInput};
 use sameboy::{Gameboy, JoypadButton};
-use crate::renderer::lsdj::EndDetector;
 use crate::renderer::render_options::StopCondition;
 use crate::video_builder;
 use crate::video_builder::VideoBuilder;
@@ -40,6 +39,7 @@ pub struct Renderer {
     gb_2x: Gameboy,
     viz: Arc<Mutex<Visualizer>>,
     end_detector: Arc<Mutex<lsdj::EndDetector>>,
+    vgm_2x: bool,
     vb: VideoBuilder,
 
     cur_frame: u64,
@@ -65,7 +65,7 @@ impl Renderer {
             options.config.clone().piano_roll
         )));
         let vb = VideoBuilder::new(options.video_options.clone())?;
-        let end_detector = Arc::new(Mutex::new(EndDetector::new()));
+        let end_detector = Arc::new(Mutex::new(lsdj::EndDetector::new()));
 
         Ok(Self {
             options: options.clone(),
@@ -73,6 +73,7 @@ impl Renderer {
             gb_2x,
             viz,
             end_detector,
+            vgm_2x: false,
             vb,
             cur_frame: 0,
             encode_start: Instant::now(),
@@ -87,7 +88,11 @@ impl Renderer {
     }
 
     pub fn is_2x(&self) -> bool {
-        matches!(&self.options.input, RenderInput::LSDj2x(_, _, _, _))
+        match &self.options.input {
+            RenderInput::LSDj2x(_, _, _, _) => true,
+            RenderInput::VGM(_, _, _) => self.vgm_2x,
+            _ => false
+        }
     }
 
     pub fn start_encoding(&mut self) -> Result<()> {
@@ -95,6 +100,8 @@ impl Renderer {
         self.gb.emulate_joypad_bouncing(false);
         self.gb.allow_illegal_inputs(true);
         self.gb.set_rendering_disabled(true);
+
+        self.vgm_2x = false;
 
         match &self.options.input {
             RenderInput::None => bail!("No input specified."),
@@ -176,17 +183,27 @@ impl Renderer {
 
                 self.gb.set_memory_interceptor(Some(self.end_detector.clone()));
             }
-            RenderInput::VGM(vgm_path) => {
+            RenderInput::VGM(vgm_path, engine_rate, tma_offset) => {
                 let vgm_data = fs::read(vgm_path)
                     .map_err(|e| anyhow!("Failed to read VGM! {}", e))?;
 
                 let mut vgm_s = vgm::Vgm::new(&vgm_data)?;
-                let (gbs, engine_data) = vgm::converter::vgm_to_gbs(&mut vgm_s)?;
+                self.vgm_2x = vgm_s.lr35902_clock().map(|(_c, v)| v).unwrap_or_default();
 
-                println!("{:?}", engine_data.loop_data);
-
+                let gbs = vgm::converter::vgm_to_gbs(&mut vgm_s, false, *engine_rate, *tma_offset)?;
                 self.gb.load_gbs(&gbs)
                     .map_err(|e| anyhow!("Failed to convert VGM to valid GBS! {}", e))?;
+
+                if self.is_2x() {
+                    self.gb_2x.set_sample_rate(self.options.video_options.sample_rate as usize);
+                    self.gb_2x.emulate_joypad_bouncing(false);
+                    self.gb_2x.allow_illegal_inputs(true);
+                    self.gb_2x.set_rendering_disabled(true);
+
+                    let gbs_2x = vgm::converter::vgm_to_gbs(&mut vgm_s, true, *engine_rate, *tma_offset)?;
+                    self.gb_2x.load_gbs(&gbs_2x)
+                        .map_err(|e| anyhow!("Failed to convert VGM to valid GBS! {}", e))?;
+                }
             }
         }
 
@@ -200,9 +217,11 @@ impl Renderer {
             self.gb_2x.set_apu_receiver(Some(self.viz.clone()));
             let _ = self.gb_2x.get_audio_samples(None).unwrap();
 
-            self.gb.run_frame();
-            self.gb_2x.run_frame();
-            self.gb.connect_console(&mut self.gb_2x);
+            if matches!(&self.options.input, RenderInput::LSDj2x(_, _, _, _)) {
+                self.gb.run_frame();
+                self.gb_2x.run_frame();
+                self.gb.connect_console(&mut self.gb_2x);
+            }
         }
 
         {
@@ -242,7 +261,7 @@ impl Renderer {
         if self.is_2x() {
             self.gb.run_frame_sync(&mut self.gb_2x);
 
-            if self.frame_timestamp < 0.5 {
+            if self.frame_timestamp < 0.5 && matches!(&self.options.input, RenderInput::LSDj2x(_, _, _, _)) {
                 self.gb.set_joypad_button(JoypadButton::Start, true);
             } else {
                 self.gb.joypad_release_all();

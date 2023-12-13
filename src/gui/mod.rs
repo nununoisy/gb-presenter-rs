@@ -54,10 +54,10 @@ fn slint_color_component_arr<I: IntoIterator<Item = tiny_skia::Color>>(a: I) -> 
 fn browse_for_rom_dialog(for_2x: bool) -> Option<String> {
     let file = if !for_2x {
         FileDialog::new()
-            .add_filter("All supported formats", &["gb", "gbs", "vgm"])
+            .add_filter("All supported formats", &["gb", "gbs", "vgm", "vgz", "vgm.gz"])
             .add_filter("LSDj ROMs", &["gb"])
             .add_filter("GameBoy Sound Files", &["gbs"])
-            .add_filter("Furnace/DefleMask VGMs", &["vgm"])
+            .add_filter("VGM Log Files", &["vgm", "vgz", "vgm.gz"])
     } else {
         FileDialog::new()
             .add_filter("LSDj ROMs", &["gb"])
@@ -408,6 +408,7 @@ pub fn run() {
                     }
 
                     main_window_weak.unwrap().set_input_valid(false);
+                    main_window_weak.unwrap().set_vgm_2x(false);
 
                     main_window_weak.unwrap().set_track_duration_num("300".into());
                     main_window_weak.unwrap().set_track_duration_type("seconds".into());
@@ -489,6 +490,8 @@ pub fn run() {
 
                     let vgm_s = vgm::Vgm::open(path.clone());
                     if let Ok(vgm_s) = vgm_s {
+                        main_window_weak.unwrap().set_vgm_2x(vgm_s.lr35902_clock().map(|(_c, v)| v).unwrap_or_default());
+
                         let song_title = match vgm_s.gd3_metadata() {
                             Some(gd3) => gd3.title,
                             None => "<?>".to_string()
@@ -497,7 +500,9 @@ pub fn run() {
 
                         main_window_weak.unwrap().set_input_valid(true);
                         main_window_weak.unwrap().set_input_type(InputType::VGM);
-                        options.borrow_mut().input = RenderInput::VGM(path.clone());
+                        main_window_weak.unwrap().set_vgm_engine_rate(60);
+                        main_window_weak.unwrap().set_vgm_tma_offset(0);
+                        options.borrow_mut().input = RenderInput::VGM(path.clone(), 60, 0);
                         return;
                     }
 
@@ -667,9 +672,9 @@ pub fn run() {
                         FormattedDuration(Duration::from_secs_f64(seconds)).to_string()
                     },
                     StopCondition::Loops(loops) => {
-                        if let RenderInput::VGM(vgm_path) = options.borrow().input.clone() {
+                        if let RenderInput::VGM(vgm_path, engine_rate, _) = options.borrow().input.clone() {
                             let vgm_s = vgm::Vgm::open(vgm_path).unwrap();
-                            let frames = vgm::duration_frames(&vgm_s, loops);
+                            let frames = vgm::duration_frames(&vgm_s, engine_rate,loops);
                             let seconds = frames as f64 / 60.0;
                             FormattedDuration(Duration::from_secs_f64(seconds)).to_string()
                         } else {
@@ -678,7 +683,21 @@ pub fn run() {
                     }
                 };
                 main_window_weak.unwrap().set_track_duration_formatted(label.into());
+            } else {
+                main_window_weak.unwrap().set_track_duration_formatted("<error>".into());
             }
+        });
+    }
+
+    {
+        let main_window_weak = main_window.as_weak();
+        let options = options.clone();
+        main_window.on_update_vgm_config(move || {
+            if let RenderInput::VGM(_, engine_rate, tma_offset) = &mut options.borrow_mut().input {
+                *engine_rate = main_window_weak.unwrap().get_vgm_engine_rate() as u32;
+                *tma_offset = main_window_weak.unwrap().get_vgm_tma_offset();
+            }
+            main_window_weak.unwrap().invoke_update_formatted_duration();
         });
     }
 
@@ -720,9 +739,9 @@ pub fn run() {
                     if main_window_weak.unwrap().get_input_type() == InputType::GBS {
                         display_error_dialog("Loop detection is not supported for GBS files. Please select a different duration type.");
                         return;
-                    } else if let RenderInput::VGM(vgm_path) = render_input {
+                    } else if let RenderInput::VGM(vgm_path, engine_rate, _) = render_input {
                         let vgm_s = vgm::Vgm::open(vgm_path).unwrap();
-                        let frames = vgm::duration_frames(&vgm_s, loops);
+                        let frames = vgm::duration_frames(&vgm_s, engine_rate,loops);
                         options.borrow_mut().stop_condition = StopCondition::Frames(frames as u64);
                     }
                 },
@@ -738,7 +757,7 @@ pub fn run() {
             };
             options.borrow_mut().track_index = track_index;
 
-            if main_window_weak.unwrap().invoke_is_2x() {
+            if main_window_weak.unwrap().invoke_is_2x() && main_window_weak.unwrap().get_input_type() == InputType::LSDj {
                 let track_index_2x = match main_window_weak.unwrap().get_selected_track_index_2x() {
                     -1 => {
                         display_error_dialog("Please select a track to play on the 2x Game Boy.");
