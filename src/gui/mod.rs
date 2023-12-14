@@ -396,7 +396,7 @@ pub fn run() {
                         main_window_weak.unwrap().set_track_titles(slint::ModelRc::new(slint::VecModel::from(Vec::new())));
                         main_window_weak.unwrap().set_selected_track_index(-1);
                         main_window_weak.unwrap().set_selected_track_text("Select a track...".into());
-                        main_window_weak.unwrap().set_input_type(InputType::None);
+                        main_window_weak.unwrap().set_input_type(SongInputType::None);
                     } else {
                         debug_assert!(main_window_weak.unwrap().invoke_is_2x(), "Tried to set 2x SAV in non-2x mode");
 
@@ -421,7 +421,7 @@ pub fn run() {
                             display_error_dialog("Unsupported LSDj version! Please select a ROM that is v3.x or newer.");
                             return;
                         }
-                        main_window_weak.unwrap().set_input_type(InputType::LSDj);
+                        main_window_weak.unwrap().set_input_type(SongInputType::LSDj);
                         main_window_weak.unwrap().set_input_valid(false);
                         if !for_2x {
                             if !main_window_weak.unwrap().invoke_is_2x() {
@@ -483,7 +483,7 @@ pub fn run() {
                         main_window_weak.unwrap().set_track_titles(slint_string_arr(track_titles));
 
                         main_window_weak.unwrap().set_input_valid(true);
-                        main_window_weak.unwrap().set_input_type(InputType::GBS);
+                        main_window_weak.unwrap().set_input_type(SongInputType::GBS);
                         options.borrow_mut().input = RenderInput::GBS(path.clone());
                         return;
                     }
@@ -499,7 +499,7 @@ pub fn run() {
                         main_window_weak.unwrap().set_track_titles(slint_string_arr(vec![song_title]));
 
                         main_window_weak.unwrap().set_input_valid(true);
-                        main_window_weak.unwrap().set_input_type(InputType::VGM);
+                        main_window_weak.unwrap().set_input_type(SongInputType::VGM);
                         main_window_weak.unwrap().set_vgm_engine_rate(60);
                         main_window_weak.unwrap().set_vgm_tma_offset(0);
                         options.borrow_mut().input = RenderInput::VGM(path.clone(), 60, 0);
@@ -561,7 +561,7 @@ pub fn run() {
 
                     match lsdj::get_track_titles_from_save(path.clone()) {
                         Ok(track_titles) => {
-                            main_window_weak.unwrap().set_input_type(InputType::LSDj);
+                            main_window_weak.unwrap().set_input_type(SongInputType::LSDj);
                             main_window_weak.unwrap().set_input_valid(true);
 
                             if !for_2x {
@@ -592,7 +592,7 @@ pub fn run() {
                             }
                         }
                         Err(e) => {
-                            main_window_weak.unwrap().set_input_type(InputType::LSDj);
+                            main_window_weak.unwrap().set_input_type(SongInputType::LSDj);
                             main_window_weak.unwrap().set_input_valid(false);
 
                             display_error_dialog(&e.to_string());
@@ -609,7 +609,7 @@ pub fn run() {
         let options = options.clone();
         main_window.on_set_lsdj_2x(move |is_2x| {
             match main_window_weak.unwrap().get_input_type() {
-                InputType::LSDj => (),
+                SongInputType::LSDj => (),
                 _ => return false
             }
 
@@ -736,7 +736,7 @@ pub fn run() {
             let render_input = options.borrow().input.clone();
             match stop_condition {
                 StopCondition::Loops(loops) => {
-                    if main_window_weak.unwrap().get_input_type() == InputType::GBS {
+                    if main_window_weak.unwrap().get_input_type() == SongInputType::GBS {
                         display_error_dialog("Loop detection is not supported for GBS files. Please select a different duration type.");
                         return;
                     } else if let RenderInput::VGM(vgm_path, engine_rate, _) = render_input {
@@ -757,7 +757,7 @@ pub fn run() {
             };
             options.borrow_mut().track_index = track_index;
 
-            if main_window_weak.unwrap().invoke_is_2x() && main_window_weak.unwrap().get_input_type() == InputType::LSDj {
+            if main_window_weak.unwrap().invoke_is_2x() && main_window_weak.unwrap().get_input_type() == SongInputType::LSDj {
                 let track_index_2x = match main_window_weak.unwrap().get_selected_track_index_2x() {
                     -1 => {
                         display_error_dialog("Please select a track to play on the 2x Game Boy.");

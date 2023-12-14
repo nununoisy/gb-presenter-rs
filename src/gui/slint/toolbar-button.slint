@@ -1,0 +1,117 @@
+export component ToolbarButton {
+    in property <image> icon;
+    in property <string> text: "";
+    in property <string> tooltip: "";
+    in property <bool> enabled: true;
+    in property <bool> destructive: false;
+
+    callback clicked();
+
+    min-height: 32px;
+    min-width: 32px;
+
+    i-tooltip := Rectangle {
+        y: root.height + 4px;
+        width: i-tooltip-text.width + 20px;
+        opacity: 0;
+
+        background: #2c2c2cff;
+        border-radius: 3px;
+        drop-shadow-color: black;
+        drop-shadow-blur: 4px;
+        drop-shadow-offset-y: 2px;
+
+        i-tooltip-text := Text {
+            text: root.tooltip;
+            horizontal-alignment: center;
+        }
+    }
+
+    i-base := Rectangle {
+        border-radius: 4px;
+        background: transparent;
+        animate background {
+            duration: 100ms;
+            easing: ease-in-out;
+        }
+
+        i-touch-area := TouchArea {
+            clicked => {
+                if (root.enabled) {
+                    root.clicked();
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+
+                Rectangle {
+                    width: 6px;
+                }
+                VerticalLayout {
+                    alignment: center;
+
+                    i-icon := Image {
+                        width: 20px;
+                        source: root.icon;
+                        colorize: white;
+                        animate colorize {
+                            duration: 100ms;
+                            easing: ease-in-out;
+                        }
+                    }
+                }
+                if root.text != "" : Rectangle {
+                    width: 6px;
+                }
+                i-text := Text {
+                    vertical-alignment: center;
+                    text: root.text;
+                    color: white;
+                    animate color {
+                        duration: 100ms;
+                        easing: ease-in-out;
+                    }
+                }
+                Rectangle {
+                    width: 6px;
+                }
+            }
+        }
+    }
+
+    states [
+        disabled when !root.enabled: {
+            i-base.background: transparent;
+            i-icon.colorize: #FFFFFF87;
+            i-text.color: #FFFFFF87;
+            i-tooltip.opacity: 0;
+        }
+        clicked when i-touch-area.pressed: {
+            i-base.background: #FFFFFF0F;
+            i-icon.colorize: root.destructive ? #bc2f32 : #60cdff;
+            i-text.color: root.destructive ? #bc2f32 : #60cdff;
+            i-tooltip.opacity: root.tooltip != "" ? 1 : 0;
+        }
+        hovered when i-touch-area.has-hover: {
+            i-base.background: #FFFFFF1F;
+            i-icon.colorize: root.destructive ? #bc2f32 : #60cdff;
+            i-text.color: root.destructive ? #bc2f32 : #60cdff;
+            i-tooltip.opacity: root.tooltip != "" ? 1 : 0;
+
+            in {
+                animate i-tooltip.opacity {
+                    duration: 200ms;
+                    delay: 300ms;
+                    easing: ease-in-out;
+                }
+            }
+            out {
+                animate i-tooltip.opacity {
+                    duration: 150ms;
+                    easing: ease-in-out;
+                }
+            }
+        }
+    ]
+}

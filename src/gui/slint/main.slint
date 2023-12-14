@@ -1,9 +1,10 @@
 import { AboutSlint, Button, ComboBox, CheckBox, SpinBox, Switch, LineEdit, VerticalBox } from "std-widgets.slint";
 import { ChannelConfigView, ChannelConfig } from "./channel-config.slint";
+import { ToolbarButton } from "./toolbar-button.slint";
 import { ColorUtils } from "./color-picker.slint";
 export { ColorUtils }
 
-export enum InputType {
+export enum SongInputType {
     None, LSDj, GBS, VGM
 }
 
@@ -31,7 +32,7 @@ export component MainWindow inherits Window {
     in property <string> sav-path-2x: "";
     in-out property <string> background-path: "";
     in property <bool> input-valid: false;
-    in property <InputType> input-type: None;
+    in property <SongInputType> input-type: None;
     in-out property <int> selected-track-index: -1;
     in-out property <string> selected-track-text: "Select a track...";
     in-out property <int> selected-track-index-2x: -1;
@@ -69,21 +70,26 @@ export component MainWindow inherits Window {
     in property <bool> progress-error: false;
     in property <bool> progress-indeterminate: false;
 
+    property <bool> configuration-open: true;
+
     property<float> i-progress-anim-tick: -cos(180deg * mod(animation-tick() / 1.3s, 2) / 2) + 1;
     property<bool> lsdj-2x: false;
     in property<bool> vgm-2x: false;
 
     public pure function is-2x() -> bool {
-        (root.input-type == InputType.LSDj && root.lsdj-2x) || (root.input-type == InputType.VGM && root.vgm-2x)
+        (root.input-type == SongInputType.LSDj && root.lsdj-2x) || (root.input-type == SongInputType.VGM && root.vgm-2x)
     }
 
     title: "GBPresenter";
     icon: @image-url("gb-presenter-icon.png");
+    height: self.min-height;
+    width: self.min-width;
 
     Rectangle {
-        Button {
+        ToolbarButton {
             icon: @image-url("info.svg");
-            x: parent.width - self.width - 8px;
+            tooltip: "About";
+            x: parent.width - self.width - 16px;
             y: 16px;
             clicked => {
                 i-about-popup.show()
@@ -165,7 +171,6 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
-
                     AboutSlint {
                         preferred-height: 100px;
                     }
@@ -182,6 +187,8 @@ export component MainWindow inherits Window {
     VerticalBox {
         alignment: start;
         spacing: 12px;
+        z: -5;
+
         Text {
             text: "GBPresenter";
             font-size: 32px;
@@ -208,7 +215,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if input-type == InputType.LSDj : HorizontalLayout {
+        if input-type == SongInputType.LSDj : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             Text {
@@ -228,7 +235,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if input-type == InputType.LSDj : HorizontalLayout {
+        if input-type == SongInputType.LSDj : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
 
@@ -241,7 +248,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if input-type == InputType.LSDj && lsdj-2x : HorizontalLayout {
+        if input-type == SongInputType.LSDj && lsdj-2x : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             Text {
@@ -261,7 +268,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if input-type == InputType.LSDj && lsdj-2x : HorizontalLayout {
+        if input-type == SongInputType.LSDj && lsdj-2x : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             Text {
@@ -285,7 +292,7 @@ export component MainWindow inherits Window {
             alignment: stretch;
             spacing: 8px;
             Text {
-                text: (input-type == InputType.LSDj && lsdj-2x)
+                text: (input-type == SongInputType.LSDj && lsdj-2x)
                     ? "Track 1:"
                     : "Track:";
                 vertical-alignment: center;
@@ -300,7 +307,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if input-type == InputType.LSDj && lsdj-2x : HorizontalLayout {
+        if input-type == SongInputType.LSDj && lsdj-2x : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             Text {
@@ -317,7 +324,7 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        if input-type == InputType.VGM : HorizontalLayout {
+        if input-type == SongInputType.VGM : HorizontalLayout {
             alignment: stretch;
             spacing: 8px;
             
@@ -365,42 +372,73 @@ export component MainWindow inherits Window {
                 }
             }
         }
-        HorizontalLayout {
-            alignment: end;
-            spacing: 8px;
-            Text {
-                text: "Configuration:";
-                vertical-alignment: center;
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.configuration-open = !root.configuration-open;
             }
-            Button {
-                text: "Import...";
+
+            HorizontalLayout {
+                alignment: start;
+                spacing: 8px;
+
+                Image {
+                    source: @image-url("chevron-down.svg");
+                    rotation-angle: root.configuration-open ? 0deg : -90deg;
+                    animate rotation-angle {
+                        duration: 100ms;
+                        easing: ease-in-out;
+                    }
+                }
+                Text {
+                    text: "Visualizer configuration";
+                }
+            }
+        }
+        if root.configuration-open: HorizontalLayout {
+            alignment: stretch;
+            spacing: 8px;
+
+            ToolbarButton {
+                horizontal-stretch: 0.0;
+                icon: @image-url("arrow-import.svg");
+                text: "Import";
                 enabled: !rendering;
                 clicked => {
                     root.import-config();
                 }
             }
-            Button {
-                text: "Export...";
+            ToolbarButton {
+                horizontal-stretch: 0.0;
+                icon: @image-url("arrow-export.svg");
+                text: "Export";
                 enabled: !rendering;
                 clicked => {
                     root.export-config();
                 }
             }
-            Button {
+            Rectangle {
+                horizontal-stretch: 1.0;
+            }
+            ToolbarButton {
+                horizontal-stretch: 0.0;
+                icon: @image-url("arrow-reset.svg");
                 text: "Reset";
                 enabled: !rendering;
+                destructive: true;
                 clicked => {
                     root.reset-config();
                 }
             }
         }
-        ChannelConfigView {
+        if root.configuration-open: ChannelConfigView {
             enabled: !rendering;
             active-chips: root.is-2x()
                 ? ["LR35902", "LR35902 (2x)"]
                 : ["LR35902"];
             config-lr35902 <=> root.config-lr35902;
             config-lr35902-2x <=> root.config-lr35902-2x;
+            z: -10;
         }
         HorizontalLayout {
             alignment: stretch;
@@ -444,8 +482,8 @@ export component MainWindow inherits Window {
                 }
             }
             ComboBox {
-                model: input-type == InputType.VGM ? ["seconds", "frames", "loops"]
-                     : input-type == InputType.LSDj ? ["seconds", "frames", "loops"]
+                model: input-type == SongInputType.VGM ? ["seconds", "frames", "loops"]
+                     : input-type == SongInputType.LSDj ? ["seconds", "frames", "loops"]
                      : ["seconds", "frames"];
                 current-value <=> track-duration-type;
                 enabled: !rendering;
